@@ -243,6 +243,21 @@ describe('macOS process inspector', () => {
     expect(createProcessInspector('darwin', 'arm64', fake.internals).foregroundPgid(1)).toBeUndefined()
     fake.internals.exec = () => { throw new Error('gone') }
     expect(createProcessInspector('darwin', 'arm64', fake.internals).foregroundPgid(1)).toBeUndefined()
-    expect(() => createProcessInspector('win32', 'x64', fake.internals)).toThrow('unsupported on platform win32')
+    expect(() => createProcessInspector('freebsd', 'x64', fake.internals)).toThrow('unsupported on platform freebsd')
+  })
+})
+
+describe('Windows process inspector', () => {
+  it('reduces inspection to the shell pid and force-terminates on foreground signals', () => {
+    const fake = fakeInternals()
+    const inspector = createProcessInspector('win32', 'x64', fake.internals)
+    expect(inspector.foregroundPgid(10)).toBe(10)
+    expect(inspector.isStdinWaiting(10)).toBe(false)
+    expect(inspector.processTree(10)).toEqual([])
+    expect(inspector.processSession(10)).toEqual([])
+    expect(inspector.isAlive({ pid: 10, started: '' })).toBe(true)
+    inspector.signalGroup(10, 'SIGINT')
+    inspector.signalProcess({ pid: 10, started: '' }, 'SIGTERM')
+    expect(fake.kills).toEqual([[10, 'SIGKILL'], [10, 'SIGTERM']])
   })
 })

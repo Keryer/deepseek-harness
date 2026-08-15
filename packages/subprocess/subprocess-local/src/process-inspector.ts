@@ -356,6 +356,48 @@ class MacProcessInspector extends PosixProcessInspector {
 
 }
 
+class WindowsProcessInspector extends PosixProcessInspector {
+  // Windows has no POSIX process groups or /proc stdin-wait syscall evidence.
+  // The terminal driver's ConPTY owns the console, so the shell itself is the
+  // observable "foreground": every inspection fact reduces to the shell pid and
+  // "not provable". Readiness for the human terminal never calls these probes;
+  // the model-facing line-oriented send remains POSIX-only.
+  foregroundPgid(shellPid: number): number | undefined {
+    return shellPid
+  }
+
+  isStdinWaiting(_pgid: number): boolean {
+    return false
+  }
+
+  processTree(_rootPid: number): ProcessIdentity[] {
+    // Tree enumeration is deliberately omitted: Windows tree teardown is
+    // taskkill /T /F (handled by the terminal handle), not per-descendant
+    // signalling, so there are no identities to capture here.
+    return []
+  }
+
+  processSession(_sessionId: number): ProcessIdentity[] {
+    return []
+  }
+
+  isAlive(_identity: ProcessIdentity): boolean {
+    // Windows has no process-group liveness probe and no cheap start-identity
+    // check; the terminal handle's exit callback is the authoritative boundary,
+    // and force-kill paths remain best-effort (a dead pid makes the kill throw,
+    // which the callers contain).
+    return true
+  }
+
+  override signalGroup(pgid: number, _signal: SubprocessTerminalSignal): void {
+    // Windows has no process-group semantics, so any foreground signal
+    // force-terminates the identified process (Node maps SIGTERM/SIGKILL to
+    // TerminateProcess). The human terminal delivers Ctrl+C as a raw \x03
+    // write, so this path stays unused there.
+    this.internals.kill(pgid, 'SIGKILL')
+  }
+}
+
 /**
  * Create the supported platform inspector or fail at plugin load.
  * @param platform - target Node platform.
@@ -370,5 +412,6 @@ export function createProcessInspector(
 ): ProcessInspector {
   if (platform === 'linux') return new LinuxProcessInspector(arch, internals)
   if (platform === 'darwin') return new MacProcessInspector(internals)
+  if (platform === 'win32') return new WindowsProcessInspector(internals)
   throw new Error(`subprocess-local: terminal inspection is unsupported on platform ${platform}`)
 }
