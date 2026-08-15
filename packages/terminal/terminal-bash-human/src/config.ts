@@ -8,7 +8,7 @@ export interface Config {
   backendType?: string
   /** Interactive shell executable (default: `/bin/bash`). */
   shellPath?: string
-  /** Shell arguments (default: `--noprofile --norc -i`). */
+  /** Shell arguments (default: `-i`, an interactive shell that sources `.bashrc`). */
   shellArgs?: string[]
   /** Terminal rows. */
   rows?: number
@@ -35,7 +35,7 @@ export type ResolvedConfig = Required<Config>
 export const Config: z<Config> = z.object({
   backendType: z.string().default('bash-human'),
   shellPath: z.string().default('/bin/bash'),
-  shellArgs: z.array(z.string()).default(['--noprofile', '--norc', '-i']),
+  shellArgs: z.array(z.string()).default(['-i']),
   rows: z.number().default(40),
   cols: z.number().default(160),
   scrollbackLines: z.number().default(10_000),

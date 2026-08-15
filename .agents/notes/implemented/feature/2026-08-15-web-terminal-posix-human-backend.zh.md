@@ -15,7 +15,7 @@ Status: implemented
 ## Decision
 
 - `SubprocessTerminalSpawnSpec` 新增可选的 `name`，`spawnTerminal` 使用 `spec.name ?? 'dumb'`。`terminal-bash` 传 `dumb`；`terminal-pwsh` 传 `xterm-256color`，恢复其本意的 `TERM`。
-- 新后端 `@deepseek-ai/dsh-terminal-bash-human`（类型 `bash-human`）在 POSIX 上服务人类终端。它镜像 `terminal-pwsh`：原始 UTF-8 透传、不净化、`TERM=xterm-256color`、`--noprofile --norc -i`、无受控提示符，`startSend`/`signal` 拒绝模型侧就绪契约。关闭会终止整棵进程树。
+- 新后端 `@deepseek-ai/dsh-terminal-bash-human`（类型 `bash-human`）在 POSIX 上服务人类终端。它镜像 `terminal-pwsh`：原始 UTF-8 透传、不净化、`TERM=xterm-256color`、`-i`（从而由 `.bashrc` 载入用户的别名、`LS_COLORS` 与提示符）、无受控提示符，`startSend`/`signal` 拒绝模型侧就绪契约。关闭会终止整棵进程树。
 - 宿主 RPC 确定性地选择人类后端：`terminal.open` 解析 `request.payload.type ?? backends.find(name => name !== 'shell') ?? backends[0]`，因此当组合了原始后端时，`shell`（逐行的模型后端）不再服务人类终端。
 - xterm 表面通过 Ctrl+Shift+C / Cmd+C、标题栏「复制」按钮，以及存在选中时的 Ctrl+C（Windows/VS Code 惯例）复制选中内容；无选中时的 Ctrl+C 保留中断含义。面板还在 `open` resolve 后把 PTY resize 到已适配的网格。
 

@@ -6,7 +6,7 @@ Human embedded-terminal backend for `ctx.terminals` over `ctx.subprocess.spawnTe
 
 ## Plugin (`terminal-bash-human`)
 
-The plugin injects `terminals` and `subprocess`, then registers the configured backend type (`bash-human`). At spawn the backend opens `shellPath` (`/bin/bash`) in the caller's cwd (the harness working directory when the caller omits one) with `shellArgs` (`--noprofile --norc -i`), waits up to `startupTimeoutMs` for the shell's first output to use as the open motd, and returns a session whose raw output streams to subscribers. `startSend` and `signal` refuse: the human terminal forwards keystrokes as raw writes (Ctrl+C arrives as `\x03`, which the PTY line discipline translates to the foreground interrupt), so no POSIX readiness or foreground process-group contract is honored. Close terminates the whole session tree through the subprocess primitive and awaits quiescence.
+The plugin injects `terminals` and `subprocess`, then registers the configured backend type (`bash-human`). At spawn the backend opens `shellPath` (`/bin/bash`) in the caller's cwd (the harness working directory when the caller omits one) with `shellArgs` (`-i`, so `.bashrc` sources the user's aliases, `LS_COLORS`, and prompt), waits up to `startupTimeoutMs` for the shell's first output to use as the open motd, and returns a session whose raw output streams to subscribers. `startSend` and `signal` refuse: the human terminal forwards keystrokes as raw writes (Ctrl+C arrives as `\x03`, which the PTY line discipline translates to the foreground interrupt), so no POSIX readiness or foreground process-group contract is honored. Close terminates the whole session tree through the subprocess primitive and awaits quiescence.
 
 ## Model Experience
 
@@ -28,5 +28,5 @@ No direct invalidation; the named consumer owns any request-prefix change.
 
 - Raw ANSI is preserved for xterm, so full-screen and color rendering depend on the client's terminal emulator; scrollback replay re-emits the retained raw bytes after a reconnect.
 - Line-oriented send and foreground signalling are unsupported: this backend is the human-terminal half only, and the model-facing terminal stays on `terminal-bash`.
-- `shellArgs` default to `--noprofile --norc -i`, so the shell starts with a clean profile; users who want their login prompt and aliases must source them explicitly.
+- The shell sources `.bashrc` (not the login profile), so startup output and colors follow the user's own `.bashrc`; a login-only setup (`~/.profile`) is not read unless sourced explicitly.
 - Sessions do not survive harness process exit.
