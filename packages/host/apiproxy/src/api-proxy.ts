@@ -3414,7 +3414,11 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const found = await agentFor(request.payload.sessionId)
         if ('error' in found) return err(request, found.error)
         const agent = found.agent
-        const type = request.payload.type ?? terminals.listBackends()[0]
+        // The human embedded terminal prefers a raw-xterm backend. `shell` is
+        // the model-facing line-oriented backend (sanitized, controlled prompt),
+        // so it serves a human terminal only when no raw backend is composed.
+        const backends = terminals.listBackends()
+        const type = request.payload.type ?? backends.find(name => name !== 'shell') ?? backends[0]
         if (type === undefined) return err(request, { code: 'terminal-unavailable', message: 'no PTY backend registered', details: {} })
         try {
           const created = await terminals.spawn(agent, {

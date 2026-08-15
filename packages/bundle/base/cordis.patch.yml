@@ -73,14 +73,19 @@
     # following the jobs/goals/skills precedent: owner-keyed by Agent, so one
     # host instance serves every session — both the model-facing tool-terminal
     # (preset) and the human embedded terminal (host RPC) read the same seams.
-    # Each platform mounts exactly one shell backend under a distinct registry
-    # type: bash (POSIX-only) is disabled on Windows, and PowerShell (Windows
-    # ConPTY, human-terminal only) is disabled elsewhere.
+    # The model-facing line-oriented surface stays on `terminal-bash` (type
+    # `shell`, POSIX-only); the human embedded terminal gets a raw-xterm backend
+    # per platform — `terminal-bash-human` (POSIX) and `terminal-pwsh`
+    # (Windows ConPTY).
     - id: terminals
       name: '@deepseek-ai/dsh-terminal'
 
     - id: terminal-bash
       name: '@deepseek-ai/dsh-terminal-bash'
+      disabled: !!js process.platform === 'win32'
+
+    - id: terminal-bash-human
+      name: '@deepseek-ai/dsh-terminal-bash-human'
       disabled: !!js process.platform === 'win32'
 
     - id: terminal-pwsh

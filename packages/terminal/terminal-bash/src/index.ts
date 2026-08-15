@@ -129,6 +129,7 @@ export class BashTerminalBackend implements TerminalBackend {
       argv,
       cwd: spec.cwd ?? policy.workspaceRoot,
       env: childEnvironment(spec),
+      name: 'dumb',
       rows: this.config.rows,
       cols: this.config.cols,
       graceMs: this.config.disposeGraceMs,

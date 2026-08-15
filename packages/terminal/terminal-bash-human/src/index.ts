@@ -1,25 +1,24 @@
 /**
- * Human embedded-terminal PTY backend over PowerShell. Registered under type
- * `pwsh` for Windows compositions: it spawns the platform PowerShell through
- * the subprocess terminal primitive (node-pty ConPTY on Windows), streams raw
- * UTF-8 output for xterm, and forwards raw writes, resizes, and teardown. The
- * model-facing line-oriented terminal surface stays POSIX-only.
- * @module @deepseek-ai/dsh-terminal-pwsh
+ * Human embedded-terminal PTY backend over bash. Registered under type
+ * `bash-human` for POSIX compositions: it spawns `/bin/bash` through the
+ * subprocess terminal primitive, streams raw UTF-8 output for xterm, and
+ * forwards raw writes, resizes, and teardown. The model-facing line-oriented
+ * surface stays on the sibling `terminal-bash` backend under type `shell`.
+ * @module @deepseek-ai/dsh-terminal-bash-human
  */
 
 import { Context } from '@deepseek-ai/cordis'
-import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import { TerminalBackendCleanupError } from '@deepseek-ai/dsh-terminal'
 import type { TerminalBackend, TerminalBackendSpawnSpec } from '@deepseek-ai/dsh-terminal'
 import type { SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { type Config, type ResolvedConfig, validateConfig } from './config.ts'
-import { PwshPtySession } from './session.ts'
+import { BashHumanPtySession } from './session.ts'
 
 export { Config } from './config.ts'
-export type { Config as TerminalPwshConfig } from './config.ts'
+export type { Config as TerminalBashHumanConfig } from './config.ts'
 
 /** Cordis plugin name. */
-export const name = 'terminal-pwsh'
+export const name = 'terminal-bash-human'
 /** Required services: PTY registry and the process substrate. */
 export const inject = ['terminals', 'subprocess']
 
@@ -33,7 +32,7 @@ function childEnvironment(spec: TerminalBackendSpawnSpec): Record<string, string
   }
 }
 
-async function initializeSession(session: PwshPtySession, signal?: AbortSignal): Promise<void> {
+async function initializeSession(session: BashHumanPtySession, signal?: AbortSignal): Promise<void> {
   if (signal === undefined) {
     await session.initialize(signal)
     return
@@ -49,33 +48,28 @@ async function initializeSession(session: PwshPtySession, signal?: AbortSignal):
   }
 }
 
-/** PowerShell backend registered under the configured type. */
-export class PwshTerminalBackend implements TerminalBackend {
+/** Bash backend registered under the configured type. */
+export class BashHumanTerminalBackend implements TerminalBackend {
   readonly type: string
-  private readonly shellPath: string
 
   constructor(
     ctx: Context,
     private readonly config: ResolvedConfig,
-    resolveShell: () => string = () =>
-      resolvePwshPath(config.shellPath === '' ? undefined : config.shellPath),
     private readonly spawnTerminal: (
       spec: SubprocessTerminalSpawnSpec,
     ) => Promise<SubprocessTerminalHandle> = spec => ctx.subprocess.spawnTerminal(spec),
     private readonly createSession: (
       terminal: SubprocessTerminalHandle,
       config: ResolvedConfig,
-    ) => PwshPtySession = (terminal, config) => new PwshPtySession(terminal, config),
+    ) => BashHumanPtySession = (terminal, config) => new BashHumanPtySession(terminal, config),
   ) {
     this.type = config.backendType
-    this.shellPath = resolveShell()
-    if (this.shellPath.length === 0) throw new Error('terminal-pwsh: could not resolve a PowerShell executable')
   }
 
-  async spawn(spec: TerminalBackendSpawnSpec): Promise<PwshPtySession> {
+  async spawn(spec: TerminalBackendSpawnSpec): Promise<BashHumanPtySession> {
     spec.signal?.throwIfAborted()
     const terminal = await this.spawnTerminal({
-      argv: [this.shellPath, ...this.config.shellArgs],
+      argv: [this.config.shellPath, ...this.config.shellArgs],
       cwd: spec.cwd ?? process.cwd(),
       env: childEnvironment(spec),
       name: 'xterm-256color',
@@ -99,8 +93,8 @@ export class PwshTerminalBackend implements TerminalBackend {
   }
 }
 
-/** Register the PowerShell PTY backend. */
+/** Register the bash human-terminal PTY backend. */
 export function apply(ctx: Context, config: Config): void {
   validateConfig(config)
-  ctx.terminals.registerBackend(new PwshTerminalBackend(ctx, config))
+  ctx.terminals.registerBackend(new BashHumanTerminalBackend(ctx, config))
 }

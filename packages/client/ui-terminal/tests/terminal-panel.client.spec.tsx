@@ -342,6 +342,11 @@ describe('TerminalPanel', () => {
       expect(handler({ type: 'keydown', metaKey: true, code: 'KeyA' })).toBe(true)
       expect(writeText).not.toHaveBeenCalled()
 
+      // Ctrl+C without a selection keeps its interrupt meaning.
+      xtermMock.state.selection = ''
+      expect(handler({ type: 'keydown', ctrlKey: true, code: 'KeyC' })).toBe(true)
+      expect(writeText).not.toHaveBeenCalled()
+
       // A copy key with an empty selection consumes the key but writes nothing.
       const preventDefault = vi.fn()
       expect(handler({ type: 'keydown', ctrlKey: true, shiftKey: true, code: 'KeyC', preventDefault })).toBe(false)
@@ -352,6 +357,16 @@ describe('TerminalPanel', () => {
       xtermMock.state.selection = 'hello'
       expect(handler({ type: 'keydown', ctrlKey: true, shiftKey: true, code: 'KeyC', preventDefault: vi.fn() })).toBe(false)
       expect(writeText).toHaveBeenCalledWith('hello')
+
+      // Ctrl+C with a selection copies too (Windows/VS Code convention).
+      xtermMock.state.selection = 'ctrl-c'
+      expect(handler({ type: 'keydown', ctrlKey: true, code: 'KeyC', preventDefault: vi.fn() })).toBe(false)
+      expect(writeText).toHaveBeenCalledWith('ctrl-c')
+
+      // Ctrl+Cmd+C is a copy shortcut, not an interrupt.
+      xtermMock.state.selection = 'both'
+      expect(handler({ type: 'keydown', ctrlKey: true, metaKey: true, code: 'KeyC', preventDefault: vi.fn() })).toBe(false)
+      expect(writeText).toHaveBeenCalledWith('both')
 
       // Cmd+C copies the selection too.
       xtermMock.state.selection = 'world'

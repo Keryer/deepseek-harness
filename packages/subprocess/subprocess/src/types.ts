@@ -206,6 +206,8 @@ export interface SubprocessTerminalSpawnSpec {
   argv: readonly string[]
   /** Working directory in this subprocess provider's execution world. */
   cwd: string
+  /** Terminal type name (`TERM`) the child sees; providers default to `dumb`. */
+  name?: string | undefined
   /** Explicit environment layered after the provider's ambient scrub. */
   env?: Record<string, string> | undefined
   /** Initial terminal row count. */

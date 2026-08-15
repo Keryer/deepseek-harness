@@ -152,15 +152,18 @@ const TerminalBody = forwardRef<TerminalBodyHandle, { sessionId: SessionId; face
       fit.fit()
 
       // xterm renders to a canvas and leaves clipboard writes to the host, so
-      // copy must be wired here. Ctrl+Shift+C / Cmd+C copies the selection;
-      // other keys (including plain Ctrl+C → SIGINT) keep xterm's handling.
+      // copy must be wired here. Ctrl+Shift+C / Cmd+C copies the selection, and
+      // Ctrl+C copies only when a selection exists (the Windows/VS Code
+      // convention); Ctrl+C without a selection keeps its interrupt meaning.
       term.attachCustomKeyEventHandler((event) => {
         if (event.type !== 'keydown') return true
-        const copyKey = (event.ctrlKey && event.shiftKey && event.code === 'KeyC')
+        const copyShortcut = (event.ctrlKey && event.shiftKey && event.code === 'KeyC')
           || (event.metaKey && event.code === 'KeyC')
-        if (!copyKey) return true
-        event.preventDefault()
+        const ctrlC = event.ctrlKey && !event.shiftKey && !event.metaKey && event.code === 'KeyC'
+        if (!copyShortcut && !ctrlC) return true
         const selection = term.getSelection()
+        if (!copyShortcut && selection.length === 0) return true
+        event.preventDefault()
         if (selection.length > 0) void writeClipboard(selection)
         return false
       })
