@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Web embedded-terminal feature plugin: a toggle button in the sidebar's `sidebar.footer.action` seat (above Settings, styled like the Settings foot trigger) opens and closes the docked terminal panel (xterm) in the layout `shell.panel` bottom split. The panel docks below the center/details columns — the sidebar stays full height — follows the current session, streams live output over the `terminal/output` WebSocket downlink, writes keystrokes directly to the host PTY, resizes by dragging its top divider, matches the page background, and switches to a light ANSI palette in light theme.
+Web embedded-terminal feature plugin: a toggle button in the sidebar's `sidebar.footer.action` seat (above Settings, styled like the Settings foot trigger) opens and closes the docked terminal panel (xterm) in the layout `shell.panel` bottom split. The panel docks below the center/details columns — the sidebar stays full height — follows the current session, streams live output over the `terminal/output` WebSocket downlink, writes keystrokes directly to the host PTY, syncs the PTY grid to the fitted panel on open, copies the selection through Ctrl+Shift+C / Cmd+C or the header copy control, resizes by dragging its top divider, matches the page background, and switches to a light ANSI palette in light theme.
 
 The host half is empty on purpose: the terminal RPC domain lives in the host `apiproxy`, and the terminal object-layer state (`ctx.terminalFeed`) lives in the client `runtime`; this package narrows both into an inject face and renders the page surface through the slot system. One shared terminal store (open state + panel height) drives the toggle and the panel together.
 

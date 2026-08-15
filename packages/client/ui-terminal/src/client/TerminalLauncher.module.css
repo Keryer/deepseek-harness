@@ -81,6 +81,28 @@
   color: var(--dsw-alias-label-primary-dimmed);
 }
 
+/* The header's right controls: copy and close read as one group. */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Selection copy control, mirroring the close button's geometry. */
+.copy {
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.copy:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
 .close {
   border: none;
   background: transparent;

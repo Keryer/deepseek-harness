@@ -4,9 +4,10 @@
  * xterm surface is transparent so the panel's page-background token shows
  * through, and keystrokes/output flow through the injected terminal face.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { SessionId, TerminalOutput } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import { Terminal } from '@xterm/xterm'
 import type { ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -108,63 +109,109 @@ function PanelDivider(props: { onStart: () => void; onDrag: (dy: number) => void
   )
 }
 
-/** The xterm surface: opens one terminal, streams output, forwards keystrokes, resizes. */
-function TerminalBody({ sessionId, face }: { sessionId: SessionId; face: TerminalFace }) {
-  const hostRef = useRef<HTMLDivElement>(null)
+/** How long the header copy control's success label stays after a copy, in ms. */
+const COPIED_FEEDBACK_MS = 1000
 
-  useEffect(() => {
-    const host = hostRef.current
-    if (host === null) return
-    const term = new Terminal({
-      convertEol: false,
-      cursorBlink: true,
-      allowTransparency: true,
-      theme: xtermTheme(),
-    })
-    const fit = new FitAddon()
-    term.loadAddon(fit)
-    term.open(host)
-    fit.fit()
-
-    let terminalId: string | null = null
-    let disposed = false
-
-    const offOutput = face.onOutput((output: TerminalOutput) => {
-      if (output.sessionId === sessionId && output.id === terminalId) term.write(output.data)
-    })
-    const offReset = face.onReset(() => { term.reset() })
-
-    void face.open(sessionId).then((created) => {
-      if (disposed) return
-      terminalId = created.id
-      if (created.motd.length > 0) term.write(created.motd)
-    }).catch((error: unknown) => {
-      term.write(`\r\n[terminal] ${error instanceof Error ? error.message : String(error)}\r\n`)
-    })
-
-    const input = term.onData((data) => {
-      if (terminalId !== null) void face.write(sessionId, terminalId, data)
-    })
-
-    const observer = new ResizeObserver(() => {
-      fit.fit()
-      if (terminalId !== null) void face.resize(sessionId, terminalId, term.cols, term.rows)
-    })
-    observer.observe(host)
-
-    return () => {
-      disposed = true
-      offOutput()
-      offReset()
-      input.dispose()
-      observer.disconnect()
-      if (terminalId !== null) void face.close(sessionId, terminalId)
-      term.dispose()
-    }
-  }, [sessionId, face])
-
-  return <div ref={hostRef} className={css.body} />
+/** Imperative surface the panel header's copy control reaches into. */
+interface TerminalBodyHandle {
+  /** Copy the current xterm selection; resolves false when nothing is selected or the host declined. */
+  copy: () => Promise<boolean>
 }
+
+/** The xterm surface: opens one terminal, streams output, forwards keystrokes, resizes. */
+const TerminalBody = forwardRef<TerminalBodyHandle, { sessionId: SessionId; face: TerminalFace }>(
+  function TerminalBody({ sessionId, face }, ref) {
+    const hostRef = useRef<HTMLDivElement>(null)
+    const termRef = useRef<Terminal | null>(null)
+
+    useImperativeHandle(ref, () => ({
+      copy: async () => {
+        const term = termRef.current
+        /* v8 ignore next -- ref-null guard: copy is only reachable while the xterm is mounted. */
+        if (term === null) return false
+        const selection = term.getSelection()
+        if (selection.length === 0) return false
+        return writeClipboard(selection)
+      },
+    }), [])
+
+    useEffect(() => {
+      const host = hostRef.current
+      /* v8 ignore next -- ref-null guard: the effect runs only after the body div commits. */
+      if (host === null) return
+      const term = new Terminal({
+        convertEol: false,
+        cursorBlink: true,
+        allowTransparency: true,
+        theme: xtermTheme(),
+      })
+      termRef.current = term
+      const fit = new FitAddon()
+      term.loadAddon(fit)
+      term.open(host)
+      fit.fit()
+
+      // xterm renders to a canvas and leaves clipboard writes to the host, so
+      // copy must be wired here. Ctrl+Shift+C / Cmd+C copies the selection;
+      // other keys (including plain Ctrl+C → SIGINT) keep xterm's handling.
+      term.attachCustomKeyEventHandler((event) => {
+        if (event.type !== 'keydown') return true
+        const copyKey = (event.ctrlKey && event.shiftKey && event.code === 'KeyC')
+          || (event.metaKey && event.code === 'KeyC')
+        if (!copyKey) return true
+        event.preventDefault()
+        const selection = term.getSelection()
+        if (selection.length > 0) void writeClipboard(selection)
+        return false
+      })
+
+      let terminalId: string | null = null
+      let disposed = false
+
+      const offOutput = face.onOutput((output: TerminalOutput) => {
+        if (output.sessionId === sessionId && output.id === terminalId) term.write(output.data)
+      })
+      const offReset = face.onReset(() => { term.reset() })
+
+      void face.open(sessionId).then((created) => {
+        if (disposed) return
+        terminalId = created.id
+        // The PTY spawns on the backend's default grid while the surface is
+        // already fitted to the panel. Sync before any command so COLUMNS-aware
+        // output (ls, tables) aligns instead of wrapping at the wrong width.
+        void face.resize(sessionId, terminalId, term.cols, term.rows).catch(() => {
+          // A rejected initial resize keeps the backend default grid; the terminal stays usable.
+        })
+        if (created.motd.length > 0) term.write(created.motd)
+      }).catch((error: unknown) => {
+        term.write(`\r\n[terminal] ${error instanceof Error ? error.message : String(error)}\r\n`)
+      })
+
+      const input = term.onData((data) => {
+        if (terminalId !== null) void face.write(sessionId, terminalId, data)
+      })
+
+      const observer = new ResizeObserver(() => {
+        fit.fit()
+        if (terminalId !== null) void face.resize(sessionId, terminalId, term.cols, term.rows)
+      })
+      observer.observe(host)
+
+      return () => {
+        disposed = true
+        offOutput()
+        offReset()
+        input.dispose()
+        observer.disconnect()
+        if (terminalId !== null) void face.close(sessionId, terminalId)
+        termRef.current = null
+        term.dispose()
+      }
+    }, [sessionId, face])
+
+    return <div ref={hostRef} className={css.body} />
+  },
+)
 
 /**
  * The docked terminal: renders nothing while closed or session-less (so the
@@ -187,7 +234,21 @@ export function TerminalPanel(props: TerminalPanelProps) {
   }), [props.open, props.write, props.resize, props.close, props.onOutput, props.onReset])
 
   const heightBase = useRef(0)
+  const bodyRef = useRef<TerminalBodyHandle>(null)
+  const [copied, setCopied] = useState(false)
   if (!open || sessionId === undefined) return null
+
+  const copySelection = () => {
+    if (copied) return
+    const body = bodyRef.current
+    /* v8 ignore next -- ref-null guard: the copy button renders only alongside the mounted terminal body. */
+    if (body === null) return
+    void body.copy().then((ok) => {
+      if (!ok) return
+      setCopied(true)
+      window.setTimeout(() => { setCopied(false) }, COPIED_FEEDBACK_MS)
+    })
+  }
 
   return (
     <div className={css.panel} style={{ height }} role="region" aria-label="终端面板">
@@ -198,9 +259,14 @@ export function TerminalPanel(props: TerminalPanelProps) {
       />
       <header className={css.header}>
         <span className={css.title}>终端</span>
-        <button type="button" className={css.close} aria-label="关闭终端" onClick={actions.close}>✕</button>
+        <div className={css.actions}>
+          <button type="button" className={css.copy} onClick={copySelection}>
+            {copied ? '复制成功' : '复制'}
+          </button>
+          <button type="button" className={css.close} aria-label="关闭终端" onClick={actions.close}>✕</button>
+        </div>
       </header>
-      <TerminalBody sessionId={sessionId} face={face} />
+      <TerminalBody ref={bodyRef} sessionId={sessionId} face={face} />
     </div>
   )
 }
