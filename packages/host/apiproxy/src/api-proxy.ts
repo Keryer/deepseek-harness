@@ -5,6 +5,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
@@ -3421,9 +3422,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const type = request.payload.type ?? backends.find(name => name !== 'shell') ?? backends[0]
         if (type === undefined) return err(request, { code: 'terminal-unavailable', message: 'no PTY backend registered', details: {} })
         try {
+          // The human terminal opens in the session's workspace when the caller
+          // does not name one, falling back to the user's home directory for a
+          // pre-project session that recorded no cwd.
+          const cwd = request.payload.cwd ?? agent.session.header.cwd ?? homedir()
           const created = await terminals.spawn(agent, {
             type,
-            ...request.payload.cwd !== undefined ? { cwd: request.payload.cwd } : {},
+            cwd,
             ...request.payload.name !== undefined ? { name: request.payload.name } : {},
           })
           return ok(request, {
