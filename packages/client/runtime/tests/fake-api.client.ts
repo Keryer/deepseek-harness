@@ -7,6 +7,7 @@ import type {
   WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import { RpcId } from '@deepseek-ai/dsh-client-connection/client'
+import type { TerminalFrame } from '@deepseek-ai/dsh-client-connection/client'
 import type { SessionRemotes } from '../src/client/sessions/remotes.ts'
 
 /** Programmable-default workspace row (branded id, ISO-ish times). */
@@ -132,6 +133,7 @@ export class FakeApiClient implements IApiClient {
 
   private readonly muxConns: StreamConn<MuxFrame>[] = []
   private readonly hostConns: StreamConn<HostFrame>[] = []
+  private readonly terminalConns: StreamConn<TerminalFrame>[] = []
   lastSearchSignal: AbortSignal | undefined
 
   // Parameters carry local structural annotations: the CI lint lane runs
@@ -277,6 +279,18 @@ export class FakeApiClient implements IApiClient {
     discoverModels: payload => this.record('llm.discoverModels', payload, Promise.resolve(ok({ models: [] }))),
   }
 
+  readonly terminal: IApiClient['terminal'] = {
+    open: (payload: unknown) => this.record('terminal.open', payload, Promise.resolve(ok({ id: 'pty-fake', type: 'shell', status: { kind: 'running' }, motd: '' }))),
+    send: (payload: unknown) => this.record('terminal.send', payload, Promise.resolve(ok({ viewport: '', waitReason: 'stdin_read', sessionStatus: { kind: 'running' }, truncated: false }))),
+    read: (payload: unknown) => this.record('terminal.read', payload, Promise.resolve(ok({ text: '', totalLines: 0, lineBegin: 0, lineEnd: 0, truncated: false }))),
+    write: (payload: unknown) => this.record('terminal.write', payload, Promise.resolve(ok({ accepted: true as const }))),
+    resize: (payload: unknown) => this.record('terminal.resize', payload, Promise.resolve(ok({ accepted: true as const }))),
+    signal: (payload: unknown) => this.record('terminal.signal', payload, Promise.resolve(ok({ targetPgid: 1 }))),
+    close: (payload: unknown) => this.record('terminal.close', payload, Promise.resolve(ok({ closed: true as const }))),
+    list: (payload: unknown) => this.record('terminal.list', payload, Promise.resolve(ok({ sessions: [] }))),
+    stream: (_payload: unknown, signal: AbortSignal, onOpen?: () => void) => this.openStream(this.terminalConns, signal, onOpen),
+  }
+
   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */
   suppressStreamOpen = false
 
@@ -311,13 +325,17 @@ export class FakeApiClient implements IApiClient {
     for (const conn of [...this.hostConns]) conn.feed({ kind: 'frame', envelope: { rpcId: RpcId(rpcId ?? `push-${nextRpc++}`), payload: frame } })
   }
 
+  pushTerminal(frame: TerminalFrame, rpcId?: string): void {
+    for (const conn of [...this.terminalConns]) conn.feed({ kind: 'frame', envelope: { rpcId: RpcId(rpcId ?? `push-${nextRpc++}`), payload: frame } })
+  }
+
   /** End (clean close) or fail (throw) every open stream — reconnect-path material. */
   endStreams(): void {
-    for (const conn of [...this.muxConns, ...this.hostConns]) conn.feed({ kind: 'end' })
+    for (const conn of [...this.muxConns, ...this.hostConns, ...this.terminalConns]) conn.feed({ kind: 'end' })
   }
 
   failStreams(error: unknown): void {
-    for (const conn of [...this.muxConns, ...this.hostConns]) conn.feed({ kind: 'fail', error })
+    for (const conn of [...this.muxConns, ...this.hostConns, ...this.terminalConns]) conn.feed({ kind: 'fail', error })
   }
 
   get openMuxCount(): number {

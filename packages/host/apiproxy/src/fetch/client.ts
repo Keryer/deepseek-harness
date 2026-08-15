@@ -6,13 +6,14 @@
  */
 
 import type { z } from 'zod'
-import type { ApiProxy, HostFrame, MuxFrame } from '../api/index.ts'
+import type { ApiProxy, HostFrame, MuxFrame, TerminalFrame } from '../api/index.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '../api/rpc-map.ts'
 import type { ClientRequest, ClientResponse, RpcMessage, RpcReceipt, RpcRequest, RpcResponse, ServerRequest } from '../api/rpc.ts'
 import { RpcId } from '../api/rpc.ts'
 import type { Wire } from '../api/rpc.schema.ts'
 import { rpcReceiptSchema, serverRequestSchema, serverResponseSchema } from '../api/rpc.schema.ts'
 import { hostFrameSchema, muxFrameSchema } from '../api/events.schema.ts'
+import { terminalFrameSchema } from '../api/terminal.schema.ts'
 import {
   hostCreateDirectoryValueSchema, hostDescribeValueSchema,
   hostListDirectoryValueSchema, hostOpenPathValueSchema, hostPickDirectoryValueSchema,
@@ -67,6 +68,16 @@ import {
   subagentListValueSchema,
   subagentPromptValueSchema,
 } from '../api/subagents.schema.ts'
+import {
+  terminalCloseValueSchema,
+  terminalListValueSchema,
+  terminalOpenValueSchema,
+  terminalReadValueSchema,
+  terminalResizeValueSchema,
+  terminalSendValueSchema,
+  terminalSignalValueSchema,
+  terminalWriteValueSchema,
+} from '../api/terminal.schema.ts'
 
 /**
  * Client consumption face of the contract (shape a): same domain tree as ApiProxy, but unary
@@ -161,6 +172,17 @@ export interface IApiClient {
     models(payload: RequestPayload<'llm.models'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.models'>>>
     discoverModels(payload: RequestPayload<'llm.discoverModels'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.discoverModels'>>>
   }
+  terminal: {
+    open(payload: RequestPayload<'terminal.open'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'terminal.open'>>>
+    send(payload: RequestPayload<'terminal.send'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'terminal.send'>>>
+    read(payload: RequestPayload<'terminal.read'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'terminal.read'>>>
+    write(payload: RequestPayload<'terminal.write'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'terminal.write'>>>
+    resize(payload: RequestPayload<'terminal.resize'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'terminal.resize'>>>
+    signal(payload: RequestPayload<'terminal.signal'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'terminal.signal'>>>
+    close(payload: RequestPayload<'terminal.close'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'terminal.close'>>>
+    list(payload: RequestPayload<'terminal.list'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'terminal.list'>>>
+    stream(payload: Parameters<ApiProxy['terminal']['stream']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<TerminalFrame>>
+  }
   /** client-response passthrough (rpcId is a backfill of the server-request's id — never minted here). */
   respond(message: ClientResponse, signal?: AbortSignal): Promise<RpcReceipt>
 }
@@ -222,6 +244,14 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
   'llm.providers': llmProvidersValueSchema,
   'llm.models': llmModelsValueSchema,
   'llm.discoverModels': llmDiscoverModelsValueSchema,
+  'terminal.open': terminalOpenValueSchema,
+  'terminal.send': terminalSendValueSchema,
+  'terminal.read': terminalReadValueSchema,
+  'terminal.write': terminalWriteValueSchema,
+  'terminal.resize': terminalResizeValueSchema,
+  'terminal.signal': terminalSignalValueSchema,
+  'terminal.close': terminalCloseValueSchema,
+  'terminal.list': terminalListValueSchema,
 }
 
 /** Default timeout for bounded unary calls (rpc-compare 2026-07-19: a hung host must not leave callers pending forever). */
@@ -359,6 +389,11 @@ export abstract class AbstractApiClient implements IApiClient {
     return this.readSse('/api/events.host', signal, hostFrameSchema, onOpen)
   }
 
+  /** Terminal stream opener; virtual. */
+  protected openTerminal(_payload: Parameters<ApiProxy['terminal']['stream']>[0]['payload'], signal: AbortSignal, onOpen?: () => void): AsyncIterable<RpcRequest<TerminalFrame>> {
+    return this.readSse('/api/events.terminal', signal, terminalFrameSchema, onOpen)
+  }
+
   /**
    * SSE protocol path: streaming fetch (not EventSource), '\n\n' framing, ServerRequest envelope +
    * frame-schema parse, tap, narrow yield. onOpen fires once the response headers are in and the
@@ -366,7 +401,7 @@ export abstract class AbstractApiClient implements IApiClient {
    * either parse level is reported and skipped (one corrupt frame must not kill the stream; the
    * client's gap detection covers whatever the frame carried).
    */
-  protected async *readSse<F extends MuxFrame | HostFrame>(
+  protected async *readSse<F extends MuxFrame | HostFrame | TerminalFrame>(
     path: string,
     signal: AbortSignal,
     frameSchema: z.ZodType<F>,
@@ -498,6 +533,18 @@ export abstract class AbstractApiClient implements IApiClient {
     providers: (payload, signal) => this.callUnary('llm.providers', payload, signal),
     models: (payload, signal) => this.callUnary('llm.models', payload, signal),
     discoverModels: (payload, signal) => this.callUnary('llm.discoverModels', payload, signal),
+  }
+
+  readonly terminal: IApiClient['terminal'] = {
+    open: (payload, signal) => this.callUnary('terminal.open', payload, signal),
+    send: (payload, signal) => this.callUnary('terminal.send', payload, signal),
+    read: (payload, signal) => this.callUnary('terminal.read', payload, signal),
+    write: (payload, signal) => this.callUnary('terminal.write', payload, signal),
+    resize: (payload, signal) => this.callUnary('terminal.resize', payload, signal),
+    signal: (payload, signal) => this.callUnary('terminal.signal', payload, signal),
+    close: (payload, signal) => this.callUnary('terminal.close', payload, signal),
+    list: (payload, signal) => this.callUnary('terminal.list', payload, signal),
+    stream: (payload, signal, onOpen) => this.openTerminal(payload, signal, onOpen),
   }
 
   readonly events: IApiClient['events'] = {

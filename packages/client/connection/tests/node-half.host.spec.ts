@@ -10,7 +10,7 @@ import type { ApiProxy } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { RpcId, type ClientRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { WebServer, WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
-import { API_PATH, apply, HOST_EVENTS_PATH, inject, MUX_EVENTS_PATH, type HostConnectionHandle } from '../src/index.ts'
+import { API_PATH, apply, HOST_EVENTS_PATH, inject, MUX_EVENTS_PATH, TERMINAL_EVENTS_PATH, type HostConnectionHandle } from '../src/index.ts'
 
 /** Structural webServer fake recording both route registries. */
 function fakeHttpServer(
@@ -119,15 +119,15 @@ describe('connection node half', () => {
     const { routes, upgrades, dispose } = await mounted()
     expect(routes).toHaveLength(1)
     expect(routes[0]).toMatchObject({ kind: 'prefix', path: API_PATH })
-    expect(upgrades.map(route => route.path)).toEqual([MUX_EVENTS_PATH, HOST_EVENTS_PATH])
+    expect(upgrades.map(route => route.path)).toEqual([MUX_EVENTS_PATH, HOST_EVENTS_PATH, TERMINAL_EVENTS_PATH])
     await dispose()
     expect(routes).toHaveLength(0)
     expect(upgrades).toHaveLength(0)
   })
 
-  it('requires WebSocket upgrade for network GETs to either event path', async () => {
+  it('requires WebSocket upgrade for network GETs to any event path', async () => {
     const { routes, dispose } = await mounted()
-    for (const path of [MUX_EVENTS_PATH, HOST_EVENTS_PATH]) {
+    for (const path of [MUX_EVENTS_PATH, HOST_EVENTS_PATH, TERMINAL_EVENTS_PATH]) {
       const { response, state } = fakeResponse()
       await routes[0]!.handler(fakeRequest({ host: '127.0.0.1:3080' }, path), response)
       expect(state.status).toBe(426)

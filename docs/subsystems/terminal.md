@@ -45,8 +45,14 @@ interface TerminalBackendSession {
   readonly pid?: number
   /** Start one exclusive send operation. */
   startSend(request: TerminalSendRequest): TerminalSendOperation
+  /** Write raw text to the terminal input without any readiness wait. */
+  write(text: string): Promise<void>
+  /** Resize the terminal's character grid. */
+  resize(request: TerminalResizeRequest): Promise<void>
   /** Read one bounded page from retained scrollback. */
   read(request: TerminalReadRequest): TerminalReadResult
+  /** Subscribe to new sanitized output as it arrives. */
+  onOutput(listener: (text: string) => void): () => void
   /** Signal the verified foreground process group. */
   signal(signal: TerminalSignal): Promise<TerminalSignalResult>
   /** Observe top-level process status. */
@@ -144,6 +150,14 @@ hasOwnerActivity(owner: Agent): boolean
 startSend(owner: Agent, id: TerminalSessionId, request: TerminalSendRequest): TerminalSendOperation
 
 /**
+ * Write raw text to one owned session without any readiness wait.
+ * @param owner - exact session owner.
+ * @param id - target PTY identity.
+ * @param text - raw UTF-8 text to write.
+ */
+write(owner: Agent, id: TerminalSessionId, text: string): Promise<void>
+
+/**
  * Read one bounded scrollback page from an owned session.
  * @param owner - exact session owner.
  * @param id - target PTY identity.
@@ -151,6 +165,23 @@ startSend(owner: Agent, id: TerminalSessionId, request: TerminalSendRequest): Te
  * @returns bounded retained text and pagination metadata.
  */
 read(owner: Agent, id: TerminalSessionId, request: TerminalReadRequest = {}): TerminalReadResult
+
+/**
+ * Subscribe to new output from one owned session.
+ * @param owner - exact session owner.
+ * @param id - target PTY identity.
+ * @param listener - receives each sanitized output chunk as it arrives.
+ * @returns disposer that removes exactly this listener.
+ */
+onOutput(owner: Agent, id: TerminalSessionId, listener: (text: string) => void): () => void
+
+/**
+ * Resize one owned session's terminal grid.
+ * @param owner - exact session owner.
+ * @param id - target PTY identity.
+ * @param request - new column and row counts.
+ */
+resize(owner: Agent, id: TerminalSessionId, request: TerminalResizeRequest): Promise<void>
 
 /**
  * Deliver an allowed signal through an owned backend session.
@@ -180,5 +211,5 @@ list(owner: Agent): TerminalSessionSnapshot[]
 
 Types: [Agent](core.md)
 
-Source: [`packages/terminal/terminal/src/index.ts:105`](../../packages/terminal/terminal/src/index.ts)
+Source: [`packages/terminal/terminal/src/index.ts:107`](../../packages/terminal/terminal/src/index.ts)
 <!-- END GENERATED cordis-surface -->

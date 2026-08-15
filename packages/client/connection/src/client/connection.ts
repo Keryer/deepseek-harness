@@ -1,4 +1,4 @@
-import type { HostDescription, IApiClient, HostFrame, MuxFrame, RpcRequest } from './api.ts'
+import type { HostDescription, IApiClient, HostFrame, MuxFrame, RpcRequest, TerminalFrame } from './api.ts'
 
 /** Reconnect/backoff tunables (deployment-varying — no hardcoded tunables; these become the
  *  future `ctx.connection` plugin's Config). All fields optional; defaults below. */
@@ -44,6 +44,7 @@ export type ConnectionState = 'connected' | 'reconnecting'
 export interface ConnectionSinks {
   onMuxEnvelope?: (envelope: RpcRequest<MuxFrame>) => void
   onHostEnvelope?: (envelope: RpcRequest<HostFrame>) => void
+  onTerminalEnvelope?: (envelope: RpcRequest<TerminalFrame>) => void
   /** After each connection generation is established (both streams open + describe succeeded), first connect included. */
   onConnected?: (description: HostDescription) => void
   /** Coarse state transitions (deduplicated: fires only on change). The initial pre-connect
@@ -115,9 +116,12 @@ export class ConnectionController {
       let muxOpened = (): void => {}
       /* v8 ignore next -- same placeholder pattern as muxOpened. */
       let hostOpened = (): void => {}
+      /* v8 ignore next -- same placeholder pattern as muxOpened. */
+      let terminalOpened = (): void => {}
       const streamsOpen = Promise.all([
         new Promise<void>((resolve) => { muxOpened = resolve }),
         new Promise<void>((resolve) => { hostOpened = resolve }),
+        new Promise<void>((resolve) => { terminalOpened = resolve }),
       ])
 
       const failed = new Promise<void>((resolve) => {
@@ -127,6 +131,7 @@ export class ConnectionController {
         }
         void this.pumpStream(this.api.events.mux({}, ac.signal, muxOpened), this.sinks.onMuxEnvelope, settle)
         void this.pumpStream(this.api.events.host({}, ac.signal, hostOpened), this.sinks.onHostEnvelope, settle)
+        void this.pumpStream(this.api.terminal.stream({}, ac.signal, terminalOpened), this.sinks.onTerminalEnvelope, settle)
       })
 
       try {

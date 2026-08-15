@@ -9,6 +9,7 @@ import type {
   TerminalBackend,
   TerminalBackendSession,
   TerminalReadRequest,
+  TerminalResizeRequest,
   TerminalSendOperation,
   TerminalSendRequest,
   TerminalSessionStatus,
@@ -241,6 +242,14 @@ class StubPtySession implements TerminalBackendSession {
 
   signal(_signal: TerminalSignal) {
     return Promise.resolve({ delivered: true as const, targetPgid: 123 })
+  }
+
+  async resize(_request: TerminalResizeRequest): Promise<void> {}
+
+  async write(_text: string): Promise<void> {}
+
+  onOutput(_listener: (text: string) => void): () => void {
+    return () => {}
   }
 
   status() {

@@ -85,6 +85,7 @@ class FakeTerminalSandbox {
   readonly commands: string[] = []
   readonly commandOptions: CommandOptions[] = []
   readonly inputs: Array<{ pid: number; data: Buffer }> = []
+  readonly resizes: Array<{ pid: number; cols: number; rows: number }> = []
   readonly removed: string[] = []
   readonly directories: string[] = []
   readonly writes = new Map<string, string>()
@@ -204,6 +205,9 @@ class FakeTerminalSandbox {
         await options.onData(Buffer.from('buffered banner\n'))
         return this.handle.asHandle()
       },
+      resize: async (pid: number, size: { cols: number; rows: number }): Promise<void> => {
+        this.resizes.push({ pid, cols: size.cols, rows: size.rows })
+      },
       sendInput: async (pid: number, data: Uint8Array, options?: { signal?: AbortSignal }): Promise<void> => {
         options?.signal?.throwIfAborted()
         await this.sendInputRequest?.(options?.signal)
@@ -313,6 +317,9 @@ describe('E2B terminal allocation', () => {
     await expect(terminal.inspectForeground()).resolves.toEqual({ processGroupId: 456, inputWaiting: false })
     await expect(terminal.signalForeground('SIGINT')).resolves.toBe(456)
     expect(fake.commands).toContain('kill -INT -- -456')
+
+    await terminal.resize(120, 40)
+    expect(fake.resizes).toEqual([{ pid: terminal.pid, cols: 120, rows: 40 }])
 
     const terminated = terminal.terminate()
     await expect(terminal.done).resolves.toEqual({ exitCode: null, signal: 'SIGTERM' })

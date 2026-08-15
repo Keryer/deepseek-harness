@@ -5,11 +5,11 @@ import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import WebSocket, { WebSocketServer } from 'ws'
 import type {
-  ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest,
+  ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest, TerminalFrame,
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
 
-type Frame = MuxFrame | HostFrame
+type Frame = MuxFrame | HostFrame | TerminalFrame
 
 function serverRequest(frame: RpcRequest<Frame>): ServerRequest {
   return {
@@ -76,6 +76,19 @@ export class WebSocketDownlinks {
    */
   handleHost(req: IncomingMessage, socket: Duplex, head: Buffer): void {
     this.upgrade(req, socket, head, signal => this.api.events.host({
+      rpcId: RpcId(randomUUID()),
+      payload: {},
+    }, signal))
+  }
+
+  /**
+   * Upgrade one socket and pump the terminal stream until either side closes.
+   * @param req - HTTP upgrade request.
+   * @param socket - Raw socket transferred by the HTTP server.
+   * @param head - Bytes already read after the upgrade headers.
+   */
+  handleTerminal(req: IncomingMessage, socket: Duplex, head: Buffer): void {
+    this.upgrade(req, socket, head, signal => this.api.terminal.stream({
       rpcId: RpcId(randomUUID()),
       payload: {},
     }, signal))

@@ -60,6 +60,14 @@ export interface TerminalBackendSpawnSpec extends TerminalSpawnRequest {
   signal?: AbortSignal
 }
 
+/** Request to resize the terminal's character grid. */
+export interface TerminalResizeRequest {
+  /** New column count. */
+  cols: number
+  /** New row count. */
+  rows: number
+}
+
 /** Input for one line-oriented terminal interaction. */
 export interface TerminalSendRequest {
   /** UTF-8 text to write. */
@@ -152,8 +160,14 @@ export interface TerminalBackendSession {
   readonly pid?: number
   /** Start one exclusive send operation. */
   startSend(request: TerminalSendRequest): TerminalSendOperation
+  /** Write raw text to the terminal input without any readiness wait. */
+  write(text: string): Promise<void>
+  /** Resize the terminal's character grid. */
+  resize(request: TerminalResizeRequest): Promise<void>
   /** Read one bounded page from retained scrollback. */
   read(request: TerminalReadRequest): TerminalReadResult
+  /** Subscribe to new sanitized output as it arrives. */
+  onOutput(listener: (text: string) => void): () => void
   /** Signal the verified foreground process group. */
   signal(signal: TerminalSignal): Promise<TerminalSignalResult>
   /** Observe top-level process status. */

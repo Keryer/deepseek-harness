@@ -310,6 +310,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Root interface of the unified API. New client-request domain = one new file pair + one field here + one map row.',
     methods: [
       {
+        signature: 'terminal: TerminalApi',
+        description: 'Human-facing embedded terminal surface, keyed by session.',
+        parameters: [],
+      },
+      {
         signature: 'downloads: DownloadsApi',
         description: 'Host-only download surfaces (GET, no wire envelope); absent from IApiClient.',
         parameters: [],
@@ -1778,10 +1783,26 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'live operation handle for foreground await or task registration.',
       },
       {
+        signature: 'write(owner: Agent, id: TerminalSessionId, text: string): Promise<void>',
+        description: 'Write raw text to one owned session without any readiness wait.',
+        parameters: [{ name: 'owner', description: 'exact session owner.' }, { name: 'id', description: 'target PTY identity.' }, { name: 'text', description: 'raw UTF-8 text to write.' }],
+      },
+      {
         signature: 'read(owner: Agent, id: TerminalSessionId, request: TerminalReadRequest = {}): TerminalReadResult',
         description: 'Read one bounded scrollback page from an owned session.',
         parameters: [{ name: 'owner', description: 'exact session owner.' }, { name: 'id', description: 'target PTY identity.' }, { name: 'request', description: 'optional newest-relative offset and line count.' }],
         returns: 'bounded retained text and pagination metadata.',
+      },
+      {
+        signature: 'onOutput(owner: Agent, id: TerminalSessionId, listener: (text: string) => void): () => void',
+        description: 'Subscribe to new output from one owned session.',
+        parameters: [{ name: 'owner', description: 'exact session owner.' }, { name: 'id', description: 'target PTY identity.' }, { name: 'listener', description: 'receives each sanitized output chunk as it arrives.' }],
+        returns: 'disposer that removes exactly this listener.',
+      },
+      {
+        signature: 'resize(owner: Agent, id: TerminalSessionId, request: TerminalResizeRequest): Promise<void>',
+        description: 'Resize one owned session\'s terminal grid.',
+        parameters: [{ name: 'owner', description: 'exact session owner.' }, { name: 'id', description: 'target PTY identity.' }, { name: 'request', description: 'new column and row counts.' }],
       },
       {
         signature: 'signal(owner: Agent, id: TerminalSessionId, signal: TerminalSignal): Promise<TerminalSignalResult>',
@@ -3656,6 +3677,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type RpcReceipt = {\n    accepted: true;\n} | {\n    accepted: false;\n    reason: \'not-pending\' | \'bad-response\';\n};',
   },
   {
+    name: 'RpcRequest',
+    declaration: 'export interface RpcRequest<P> {\n    rpcId: RpcId;\n    payload: P;\n}',
+  },
+  {
+    name: 'RpcResponse',
+    declaration: 'export interface RpcResponse<T> {\n    rpcId: RpcId;\n    result: RpcResult<T>;\n}',
+  },
+  {
     name: 'RpcResult',
     declaration: 'export type RpcResult<T> = {\n    ok: true;\n    value: T;\n} | {\n    ok: false;\n    error: RpcError;\n};',
   },
@@ -4217,7 +4246,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubprocessTerminalHandle',
-    declaration: 'export interface SubprocessTerminalHandle {\n    readonly pid: number;\n    readonly output: Readable;\n    readonly done: Promise<SubprocessOutcome>;\n    write(data: string): Promise<void>;\n    inspectForeground(): Promise<SubprocessTerminalForeground | undefined>;\n    signalForeground(signal: SubprocessTerminalSignal): Promise<number>;\n    terminate(): Promise<void>;\n}',
+    declaration: 'export interface SubprocessTerminalHandle {\n    readonly pid: number;\n    readonly output: Readable;\n    readonly done: Promise<SubprocessOutcome>;\n    write(data: string): Promise<void>;\n    resize(cols: number, rows: number): Promise<void>;\n    inspectForeground(): Promise<SubprocessTerminalForeground | undefined>;\n    signalForeground(signal: SubprocessTerminalSignal): Promise<number>;\n    terminate(): Promise<void>;\n}',
   },
   {
     name: 'SubprocessTerminalSignal',
@@ -4252,12 +4281,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type TableValueOf<S extends DomainSpec, N extends keyof S[\'tables\']> = S[\'tables\'][N] extends DomainTableSpec<string, infer V> ? V : never;',
   },
   {
+    name: 'TerminalApi',
+    declaration: 'export interface TerminalApi {\n    open(request: RpcRequest<TerminalOpenRequest>): Promise<RpcResponse<TerminalSessionView>>;\n    send(request: RpcRequest<TerminalSendRequest>): Promise<RpcResponse<TerminalSendResult>>;\n    read(request: RpcRequest<TerminalReadRequest>): Promise<RpcResponse<TerminalReadResult>>;\n    write(request: RpcRequest<TerminalWriteRequest>): Promise<RpcResponse<{\n        accepted: true;\n    }>>;\n    resize(request: RpcRequest<TerminalResizeRequest>): Promise<RpcResponse<{\n        accepted: true;\n    }>>;\n    signal(request: RpcRequest<TerminalSignalRequest>): Promise<RpcResponse<{\n        targetPgid: number;\n    }>>;\n    close(request: RpcRequest<TerminalCloseRequest>): Promise<RpcResponse<{\n        closed: boolean;\n    }>>;\n    list(request: RpcRequest<TerminalListRequest>): Promise<RpcResponse<{\n        sessions: TerminalSessionView[];\n    }>>;\n    stream(request: RpcRequest<{}>, signal: AbortSignal): AsyncIterable<RpcRequest<TerminalFrame>>;\n}',
+  },
+  {
     name: 'TerminalBackend',
     declaration: 'export interface TerminalBackend {\n    readonly type: string;\n    spawn(spec: TerminalBackendSpawnSpec): Promise<TerminalBackendSession>;\n}',
   },
   {
     name: 'TerminalBackendSession',
-    declaration: 'export interface TerminalBackendSession {\n    readonly motd: string;\n    readonly pid?: number;\n    startSend(request: TerminalSendRequest): TerminalSendOperation;\n    read(request: TerminalReadRequest): TerminalReadResult;\n    signal(signal: TerminalSignal): Promise<TerminalSignalResult>;\n    status(): TerminalSessionStatus;\n    close(reason: string): Promise<void>;\n}',
+    declaration: 'export interface TerminalBackendSession {\n    readonly motd: string;\n    readonly pid?: number;\n    startSend(request: TerminalSendRequest): TerminalSendOperation;\n    write(text: string): Promise<void>;\n    resize(request: TerminalResizeRequest): Promise<void>;\n    read(request: TerminalReadRequest): TerminalReadResult;\n    onOutput(listener: (text: string) => void): () => void;\n    signal(signal: TerminalSignal): Promise<TerminalSignalResult>;\n    status(): TerminalSessionStatus;\n    close(reason: string): Promise<void>;\n}',
   },
   {
     name: 'TerminalBackendSpawnSpec',
@@ -4268,12 +4301,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TerminalCallView {\n    card: \'terminal\';\n    title: string;\n    description?: string;\n    cwd?: string;\n}',
   },
   {
-    name: 'TerminalReadRequest',
-    declaration: 'export interface TerminalReadRequest {\n    offset?: number;\n    count?: number;\n}',
+    name: 'TerminalCloseRequest',
+    declaration: 'export interface TerminalCloseRequest {\n    sessionId: SessionId;\n    id: TerminalSessionId;\n}',
   },
   {
-    name: 'TerminalReadResult',
-    declaration: 'export interface TerminalReadResult {\n    text: string;\n    totalLines: number;\n    lineBegin: number;\n    lineEnd: number;\n    truncated: boolean;\n}',
+    name: 'TerminalFrame',
+    declaration: 'export type TerminalFrame = {\n    type: \'terminal/output\';\n    sessionId: SessionId;\n    id: TerminalSessionId;\n    data: string;\n} | {\n    type: \'stream/error\';\n    error: RpcError;\n};',
+  },
+  {
+    name: 'TerminalListRequest',
+    declaration: 'export interface TerminalListRequest {\n    sessionId: SessionId;\n}',
+  },
+  {
+    name: 'TerminalOpenRequest',
+    declaration: 'export interface TerminalOpenRequest {\n    sessionId: SessionId;\n    type?: string;\n    cwd?: string;\n    name?: string;\n}',
   },
   {
     name: 'TerminalResultView',
@@ -4288,18 +4329,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TerminalSendRead {\n    delta: string;\n    truncated: boolean;\n}',
   },
   {
-    name: 'TerminalSendRequest',
-    declaration: 'export interface TerminalSendRequest {\n    text: string;\n    submit: boolean;\n    signal?: AbortSignal;\n}',
-  },
-  {
-    name: 'TerminalSendResult',
-    declaration: 'export interface TerminalSendResult {\n    viewport: string;\n    waitReason: TerminalWaitReason;\n    sessionStatus: TerminalSessionStatus;\n    truncated: boolean;\n}',
-  },
-  {
-    name: 'TerminalSessionId',
-    declaration: 'export type TerminalSessionId = TerminalSessionIdValue;',
-  },
-  {
     name: 'TerminalSessionIdValue',
     declaration: 'export type TerminalSessionIdValue = Branded<\'TerminalSessionId\'>;',
   },
@@ -4308,12 +4337,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TerminalSessionSnapshot {\n    sessionId: TerminalSessionIdValue;\n    name?: string;\n    type: string;\n    pid?: number;\n    status: TerminalSessionStatus;\n}',
   },
   {
-    name: 'TerminalSessionStatus',
-    declaration: 'export type TerminalSessionStatus = {\n    kind: \'running\';\n} | {\n    kind: \'exited\';\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n};',
+    name: 'TerminalSessionView',
+    declaration: 'export interface TerminalSessionView {\n    id: TerminalSessionId;\n    name?: string;\n    type: string;\n    pid?: number;\n    status: TerminalSessionStatus;\n    motd?: string;\n}',
   },
   {
-    name: 'TerminalSignal',
-    declaration: 'export type TerminalSignal = \'SIGINT\' | \'SIGTERM\' | \'SIGKILL\' | \'SIGTSTP\' | \'SIGHUP\';',
+    name: 'TerminalSignalRequest',
+    declaration: 'export interface TerminalSignalRequest {\n    sessionId: SessionId;\n    id: TerminalSessionId;\n    signal: TerminalSignal;\n}',
   },
   {
     name: 'TerminalSignalResult',
@@ -4328,8 +4357,8 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface TerminalSpawnResult extends TerminalSessionSnapshot {\n    motd: string;\n}',
   },
   {
-    name: 'TerminalWaitReason',
-    declaration: 'export type TerminalWaitReason = \'stdin_read\' | \'inferred_idle\' | \'timeout\' | \'session_exit\';',
+    name: 'TerminalWriteRequest',
+    declaration: 'export interface TerminalWriteRequest {\n    sessionId: SessionId;\n    id: TerminalSessionId;\n    text: string;\n}',
   },
   {
     name: 'TodoItem',

@@ -12,6 +12,7 @@ import type {
   TerminalBackendSession,
   TerminalReadRequest,
   TerminalReadResult,
+  TerminalResizeRequest,
   TerminalSendOperation,
   TerminalSendRequest,
   TerminalSessionIdValue,
@@ -28,6 +29,7 @@ export type {
   TerminalBackendSpawnSpec,
   TerminalReadRequest,
   TerminalReadResult,
+  TerminalResizeRequest,
   TerminalSendOperation,
   TerminalSendRead,
   TerminalSendRequest,
@@ -109,6 +111,7 @@ export class TerminalSessionService extends Service {
   private readonly pendingSpawns = new Map<Agent, Set<PendingSpawn>>()
   private readonly ownerCleanups = new Map<Agent, () => Promise<void> | void>()
   private readonly disposedOwners = new WeakSet<Agent>()
+  private readonly createdListeners = new Set<(owner: Agent, snapshot: TerminalSessionSnapshot) => void>()
   private nextId = 0
   private disposing = false
 
@@ -142,6 +145,20 @@ export class TerminalSessionService extends Service {
    */
   listBackends(): string[] {
     return [...this.backends.keys()]
+  }
+
+  /**
+   * Subscribe to publication of new sessions, for consumers whose baseline
+   * snapshot predates a later terminal (the Web output stream re-baselines
+   * existing sessions at open and attaches to sessions opened after it through
+   * this notification; `open` already returns the new session's motd, so a
+   * subscriber needs no baseline replay, only the live-output subscription).
+   * @param listener - receives the exact owner and published snapshot.
+   * @returns disposer that removes exactly this listener.
+   */
+  onCreated(listener: (owner: Agent, snapshot: TerminalSessionSnapshot) => void): () => void {
+    this.createdListeners.add(listener)
+    return () => { this.createdListeners.delete(listener) }
   }
 
   /**
@@ -192,7 +209,9 @@ export class TerminalSessionService extends Service {
         closing: undefined,
       }
       this.sessions.set(sessionId, record)
-      return this.snapshot(record, session.motd)
+      const published = this.snapshot(record, session.motd)
+      for (const listener of this.createdListeners) listener(owner, this.snapshot(record))
+      return published
     } catch (error) {
       if (error instanceof TerminalBackendCleanupError) {
         cleanupFailure = { error: error.cleanupError }
@@ -254,6 +273,16 @@ export class TerminalSessionService extends Service {
   }
 
   /**
+   * Write raw text to one owned session without any readiness wait.
+   * @param owner - exact session owner.
+   * @param id - target PTY identity.
+   * @param text - raw UTF-8 text to write.
+   */
+  write(owner: Agent, id: TerminalSessionId, text: string): Promise<void> {
+    return this.expectOwned(owner, id).session.write(text)
+  }
+
+  /**
    * Read one bounded scrollback page from an owned session.
    * @param owner - exact session owner.
    * @param id - target PTY identity.
@@ -262,6 +291,27 @@ export class TerminalSessionService extends Service {
    */
   read(owner: Agent, id: TerminalSessionId, request: TerminalReadRequest = {}): TerminalReadResult {
     return this.expectOwned(owner, id).session.read(request)
+  }
+
+  /**
+   * Subscribe to new output from one owned session.
+   * @param owner - exact session owner.
+   * @param id - target PTY identity.
+   * @param listener - receives each sanitized output chunk as it arrives.
+   * @returns disposer that removes exactly this listener.
+   */
+  onOutput(owner: Agent, id: TerminalSessionId, listener: (text: string) => void): () => void {
+    return this.expectOwned(owner, id).session.onOutput(listener)
+  }
+
+  /**
+   * Resize one owned session's terminal grid.
+   * @param owner - exact session owner.
+   * @param id - target PTY identity.
+   * @param request - new column and row counts.
+   */
+  resize(owner: Agent, id: TerminalSessionId, request: TerminalResizeRequest): Promise<void> {
+    return this.expectOwned(owner, id).session.resize(request)
   }
 
   /**
@@ -447,6 +497,7 @@ export class TerminalSessionService extends Service {
       this.backends.clear()
       this.reservedNames.clear()
       this.pendingSpawns.clear()
+      this.createdListeners.clear()
       const cleanups = [...this.ownerCleanups.values()]
       this.ownerCleanups.clear()
       await Promise.all(cleanups.map(cleanup => Promise.resolve(cleanup())))

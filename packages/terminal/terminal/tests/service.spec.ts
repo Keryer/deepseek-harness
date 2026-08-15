@@ -8,6 +8,7 @@ import type {
   TerminalBackend,
   TerminalBackendSession,
   TerminalReadRequest,
+  TerminalResizeRequest,
   TerminalSendOperation,
   TerminalSendRequest,
   TerminalSessionId as TerminalSessionIdType,
@@ -51,6 +52,9 @@ class StubSession implements TerminalBackendSession {
   readonly motd = 'stub ready'
   readonly pid = 123
   closed: string[] = []
+  resizes: Array<{ cols: number; rows: number }> = []
+  writes: string[] = []
+  outputListeners = new Set<(text: string) => void>()
   statusValue: TerminalSessionStatus = { kind: 'running' }
   operation: TerminalSendOperation | undefined
   rejectSend = false
@@ -89,6 +93,23 @@ class StubSession implements TerminalBackendSession {
 
   async signal(signal: TerminalSignal) {
     return { delivered: true as const, targetPgid: signal === 'SIGINT' ? 12 : 13 }
+  }
+
+  async resize(request: TerminalResizeRequest): Promise<void> {
+    this.resizes.push({ cols: request.cols, rows: request.rows })
+  }
+
+  async write(text: string): Promise<void> {
+    this.writes.push(text)
+  }
+
+  onOutput(listener: (text: string) => void): () => void {
+    this.outputListeners.add(listener)
+    return () => { this.outputListeners.delete(listener) }
+  }
+
+  emit(text: string): void {
+    for (const listener of this.outputListeners) listener(text)
   }
 
   status(): TerminalSessionStatus {
@@ -170,6 +191,77 @@ describe('TerminalSessionService ownership and lifecycle', () => {
     expect(() => ctx.terminals.read(foreign, created.sessionId)).toThrow('belongs to another agent')
     expect(() => ctx.terminals.signal(foreign, created.sessionId, 'SIGINT')).toThrow('belongs to another agent')
     await expect(Promise.resolve().then(() => ctx.terminals.kill(foreign, created.sessionId))).rejects.toThrow('belongs to another agent')
+  })
+
+  it('notifies onCreated at publication and disposes the listener exactly', async () => {
+    const ctx = await harness()
+    const b = backend()
+    ctx.terminals.registerBackend(b.provider)
+    const owner = stubAgent(ctx, 'owner')
+    ctx.agents.register(owner)
+
+    const seen: Array<{ owner: Agent; sessionId: string }> = []
+    const off = ctx.terminals.onCreated((agent, snapshot) => {
+      seen.push({ owner: agent, sessionId: snapshot.sessionId })
+    })
+
+    const first = await ctx.terminals.spawn(owner, { type: 'stub' })
+    expect(seen).toEqual([{ owner, sessionId: first.sessionId }])
+
+    off()
+    await ctx.terminals.spawn(owner, { type: 'stub', name: 'second' })
+    expect(seen).toHaveLength(1)
+  })
+
+  it('resizes an owned session and fences to the exact owner', async () => {
+    const ctx = await harness()
+    const b = backend()
+    ctx.terminals.registerBackend(b.provider)
+    const owner = stubAgent(ctx, 'owner')
+    const foreign = stubAgent(ctx, 'foreign')
+    ctx.agents.register(owner)
+    ctx.agents.register(foreign)
+    const created = await ctx.terminals.spawn(owner, { type: 'stub' })
+
+    await ctx.terminals.resize(owner, created.sessionId, { cols: 120, rows: 40 })
+    expect(b.sessions[0]!.resizes).toEqual([{ cols: 120, rows: 40 }])
+    expect(() => ctx.terminals.resize(foreign, created.sessionId, { cols: 80, rows: 24 })).toThrow('belongs to another agent')
+  })
+
+  it('streams new output to subscribers and fences to the exact owner', async () => {
+    const ctx = await harness()
+    const b = backend()
+    ctx.terminals.registerBackend(b.provider)
+    const owner = stubAgent(ctx, 'owner')
+    const foreign = stubAgent(ctx, 'foreign')
+    ctx.agents.register(owner)
+    ctx.agents.register(foreign)
+    const created = await ctx.terminals.spawn(owner, { type: 'stub' })
+
+    const seen: string[] = []
+    const off = ctx.terminals.onOutput(owner, created.sessionId, (text) => { seen.push(text) })
+    b.sessions[0]!.emit('hello')
+    b.sessions[0]!.emit(' world')
+    expect(seen).toEqual(['hello', ' world'])
+    off()
+    b.sessions[0]!.emit('ignored')
+    expect(seen).toEqual(['hello', ' world'])
+    expect(() => ctx.terminals.onOutput(foreign, created.sessionId, () => {})).toThrow('belongs to another agent')
+  })
+
+  it('writes raw text to an owned session and fences to the exact owner', async () => {
+    const ctx = await harness()
+    const b = backend()
+    ctx.terminals.registerBackend(b.provider)
+    const owner = stubAgent(ctx, 'owner')
+    const foreign = stubAgent(ctx, 'foreign')
+    ctx.agents.register(owner)
+    ctx.agents.register(foreign)
+    const created = await ctx.terminals.spawn(owner, { type: 'stub' })
+
+    await ctx.terminals.write(owner, created.sessionId, 'ls\r')
+    expect(b.sessions[0]!.writes).toEqual(['ls\r'])
+    expect(() => ctx.terminals.write(foreign, created.sessionId, 'pwd\r')).toThrow('belongs to another agent')
   })
 
   it('rejects unknown backends, non-live owners, duplicate names, and active sends', async () => {

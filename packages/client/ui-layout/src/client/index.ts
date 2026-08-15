@@ -81,6 +81,16 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * `id` is added beside the shipped entries instead of replacing them.
      */
     'shell.overlay': { kind: 'list'; scope: 'root' }
+    /**
+     * The whole bottom dock: a horizontal split below the three columns, shown
+     * when its occupant renders. Unowned by any feature — the occupant (e.g.
+     * the embedded terminal) owns its own open/close and resize state, and the
+     * frame just reserves the row (content-sized) beneath the columns.
+     *
+     * No owner props: the occupant reads the current session through the
+     * framework hooks of the `root` scope.
+     */
+    'shell.panel': { kind: 'single'; scope: 'root'; owner: PanelOwnerProps }
   }
 }
 
@@ -104,6 +114,9 @@ export interface ConvOwnerProps {}
 /** Details owner share: empty — sessionId arrives as a framework-standard prop. */
 export interface DetailsOwnerProps {}
 
+/** Bottom-panel owner share: empty — the occupant owns its own open/close and resize state. */
+export interface PanelOwnerProps {}
+
 /** Required services (cordis fiber inject — the loader passes all module exports as an object plugin). */
 export const inject = ['slots', 'theme']
 
@@ -124,6 +137,7 @@ export function apply(ctx: ClientContext): void {
         'conversation': { kind: 'single', scope: 'session-maybe' },
         'details': { kind: 'single', scope: 'session' },
         'shell.overlay': { kind: 'list', scope: 'root' },
+        'shell.panel': { kind: 'single', scope: 'root' },
       },
       // Exclusive store: the factory itself — the framework instantiates per
       // entry and delivers useStore/actions to AppFrame as standard props.

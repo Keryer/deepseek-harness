@@ -8,7 +8,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { renderToolsSdk } from '@deepseek-ai/dsh-tools'
 import type { ToolSdkSchema } from '@deepseek-ai/dsh-tools/src/ts-types.ts'
 import TerminalSessionService, { TerminalSessionId } from '@deepseek-ai/dsh-terminal'
-import type { TerminalBackend, TerminalBackendSession, TerminalSendOperation, TerminalSendRequest, TerminalSessionStatus, TerminalSignal } from '@deepseek-ai/dsh-terminal'
+import type { TerminalBackend, TerminalBackendSession, TerminalResizeRequest, TerminalSendOperation, TerminalSendRequest, TerminalSessionStatus, TerminalSignal } from '@deepseek-ai/dsh-terminal'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import * as ToolPty from '@deepseek-ai/dsh-tool-terminal'
@@ -74,6 +74,14 @@ class StubSession implements TerminalBackendSession {
 
   async signal(signal: TerminalSignal) {
     return { delivered: true as const, targetPgid: signal === 'SIGINT' ? 10 : 11 }
+  }
+
+  async resize(_request: TerminalResizeRequest): Promise<void> {}
+
+  async write(_text: string): Promise<void> {}
+
+  onOutput(_listener: (text: string) => void): () => void {
+    return () => {}
   }
 
   status() { return this.statusValue }

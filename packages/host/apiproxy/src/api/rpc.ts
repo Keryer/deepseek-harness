@@ -92,6 +92,9 @@ export interface RpcErrorDetailsMap {
   'subagent-not-resumable': { childSessionId: SessionId }
   'subagent-unauthorized': { childSessionId: SessionId }
   'subagent-delivery-unavailable': { childSessionId: SessionId }
+  'terminal-unavailable': {}
+  'terminal-not-found': { sessionId: SessionId; id: string }
+  'terminal-busy': { sessionId: SessionId; id: string }
   'internal': {}
 }
 

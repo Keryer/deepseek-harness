@@ -11,6 +11,7 @@ import type {
   TerminalBackendSession,
   TerminalReadRequest,
   TerminalReadResult,
+  TerminalResizeRequest,
   TerminalSendOperation,
   TerminalSendRead,
   TerminalSendRequest,
@@ -159,6 +160,7 @@ export class LocalPtySession implements TerminalBackendSession {
   private readonly decoder = new TextDecoder()
   private readonly sanitizer: TerminalSanitizer
   private readonly scrollback: BoundedTextBuffer
+  private readonly outputListeners = new Set<(text: string) => void>()
   private readonly outputEnded = Promise.withResolvers<void>()
   private readonly completion: Promise<void>
   private statusValue: TerminalSessionStatus = { kind: 'running' }
@@ -345,6 +347,22 @@ export class LocalPtySession implements TerminalBackendSession {
     return { delivered: true, targetPgid }
   }
 
+  async resize(request: TerminalResizeRequest): Promise<void> {
+    if (this.closing) throw new Error('PTY session is closing')
+    await this.terminal.resize(request.cols, request.rows)
+  }
+
+  async write(text: string): Promise<void> {
+    if (this.closing) throw new Error('PTY session is closing')
+    if (this.statusValue.kind === 'exited') throw new Error('PTY session has exited')
+    await this.terminal.write(text)
+  }
+
+  onOutput(listener: (text: string) => void): () => void {
+    this.outputListeners.add(listener)
+    return () => { this.outputListeners.delete(listener) }
+  }
+
   status(): TerminalSessionStatus {
     return this.statusValue
   }
@@ -418,6 +436,7 @@ export class LocalPtySession implements TerminalBackendSession {
     this.lastOutputAt = Date.now()
     this.scrollback.append(text)
     this.active?.append(text)
+    for (const listener of this.outputListeners) listener(text)
   }
 
   private schedulePoll(operation: LocalSendOperation, delayMs = this.config.pollIntervalMs): void {

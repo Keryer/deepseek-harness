@@ -14,6 +14,7 @@ import type { SettingsApi } from './settings.ts'
 import type { CredentialsApi } from './credentials.ts'
 import type { LlmApi } from './llm.ts'
 import type { SubagentsApi } from './subagents.ts'
+import type { TerminalApi } from './terminal.ts'
 import type { RpcResponse } from './rpc.ts'
 
 /**
@@ -74,6 +75,14 @@ export interface RpcMethodMap {
   'llm.providers': LlmApi['providers']
   'llm.models': LlmApi['models']
   'llm.discoverModels': LlmApi['discoverModels']
+  'terminal.open': TerminalApi['open']
+  'terminal.send': TerminalApi['send']
+  'terminal.read': TerminalApi['read']
+  'terminal.write': TerminalApi['write']
+  'terminal.resize': TerminalApi['resize']
+  'terminal.signal': TerminalApi['signal']
+  'terminal.close': TerminalApi['close']
+  'terminal.list': TerminalApi['list']
 }
 
 /** Business request payload of method K (reaches through the RpcRequest narrow form to payload). */

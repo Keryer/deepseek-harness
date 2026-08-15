@@ -34,7 +34,7 @@ import { deriveEventMessage, foldSurface } from '@deepseek-ai/dsh-session/surfac
 import type {
   ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
   ModelProviderGroup, ModelSelection, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
-  ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
+  TerminalFrame, ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '@deepseek-ai/dsh-host-apiproxy/api'
 import { AbstractApiClient, RpcId, SESSION_SEARCH_RESULT_LIMIT } from './api.ts'
@@ -2962,6 +2962,28 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         models: fixtureModelGroups().flatMap(group => group.models.map(model => ({ id: model.id, name: model.name }))),
       }),
     },
+    terminal: {
+      open: request => ok(request, { id: 'pty-fx', type: 'shell', status: { kind: 'running' }, motd: '' }),
+      send: request => ok(request, { viewport: '', waitReason: 'stdin_read', sessionStatus: { kind: 'running' }, truncated: false }),
+      read: request => ok(request, { text: '', totalLines: 0, lineBegin: 0, lineEnd: 0, truncated: false }),
+      write: request => ok(request, { accepted: true as const }),
+      resize: request => ok(request, { accepted: true as const }),
+      signal: request => ok(request, { targetPgid: 1 }),
+      close: request => ok(request, { closed: true as const }),
+      list: request => ok(request, { sessions: [] }),
+      async *stream(_request: RpcRequest<{}>, signal: AbortSignal) {
+        // Long-lived idle stream: no terminal frames, but it must stay open
+        // (like mux/host) so the connection loop never reads an empty terminal
+        // surface as stream loss and reconnects.
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) {
+            resolve()
+            return
+          }
+          signal.addEventListener('abort', () => { resolve() }, { once: true })
+        })
+      },
+    },
     respond(message: ClientResponse): Promise<RpcReceipt> {
       // Same routing discipline as the host: rpcId first, then the payload's
       // audit correlation; a settled or unknown id is not-pending.
@@ -3129,6 +3151,14 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'llm.providers': return this.api.llm.providers(request)
       case 'llm.models': return this.api.llm.models(request)
       case 'llm.discoverModels': return this.api.llm.discoverModels(request, signal)
+      case 'terminal.open': return this.api.terminal.open(request)
+      case 'terminal.send': return this.api.terminal.send(request)
+      case 'terminal.read': return this.api.terminal.read(request)
+      case 'terminal.write': return this.api.terminal.write(request)
+      case 'terminal.resize': return this.api.terminal.resize(request)
+      case 'terminal.signal': return this.api.terminal.signal(request)
+      case 'terminal.close': return this.api.terminal.close(request)
+      case 'terminal.list': return this.api.terminal.list(request)
     }
   }
 
@@ -3148,7 +3178,15 @@ export class FixtureApiClient extends AbstractApiClient {
     return this.tapStream(this.api.events.host(rpcRequest(payload), signal), onOpen)
   }
 
-  private async *tapStream<F extends MuxFrame | HostFrame>(
+  protected override openTerminal(
+    payload: Record<never, never>,
+    signal: AbortSignal,
+    onOpen?: () => void,
+  ): AsyncIterable<RpcRequest<TerminalFrame>> {
+    return this.tapStream(this.api.terminal.stream(rpcRequest(payload), signal), onOpen)
+  }
+
+  private async *tapStream<F extends MuxFrame | HostFrame | TerminalFrame>(
     stream: AsyncIterable<RpcRequest<F>>,
     onOpen?: () => void,
   ): AsyncGenerator<RpcRequest<F>> {

@@ -7,7 +7,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { ApiProxy, GoalRef, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy'
+import type { ApiProxy, GoalRef, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse, TerminalFrame } from '@deepseek-ai/dsh-host-apiproxy'
 import { InProcessApiClient, RpcId, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 
 const sid = (id: string): SessionId => id as SessionId
@@ -28,6 +28,7 @@ function scriptedApi(overrides: {
   settings?: Partial<ApiProxy['settings']>
   credentials?: Partial<ApiProxy['credentials']>
   llm?: Partial<ApiProxy['llm']>
+  terminal?: Partial<ApiProxy['terminal']>
   respond?: ApiProxy['respond']
 } = {}): ApiProxy {
   async function *empty<F>(): AsyncGenerator<RpcRequest<F>> { /* no frames */ }
@@ -127,6 +128,18 @@ function scriptedApi(overrides: {
       models: r => ok(r, { groups: [], failures: [] }),
       discoverModels: err,
       ...overrides.llm,
+    },
+    terminal: {
+      open: r => ok(r, { id: 'pty-1', type: 'shell', status: { kind: 'running' }, motd: '' }),
+      send: err,
+      read: r => ok(r, { text: '', totalLines: 0, lineBegin: 0, lineEnd: 0, truncated: false }),
+      write: r => ok(r, { accepted: true as const }),
+      resize: r => ok(r, { accepted: true as const }),
+      signal: r => ok(r, { targetPgid: 1 }),
+      close: r => ok(r, { closed: true as const }),
+      list: r => ok(r, { sessions: [] }),
+      stream: () => empty<TerminalFrame>(),
+      ...overrides.terminal,
     },
     events: { mux: () => empty<MuxFrame>(), host: () => empty<HostFrame>(), ...overrides.events },
     respond: overrides.respond ?? (() => Promise.resolve({ accepted: false as const, reason: 'not-pending' as const })),

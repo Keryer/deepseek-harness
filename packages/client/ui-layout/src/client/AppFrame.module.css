@@ -5,21 +5,49 @@
   height: 100%;
   overflow: hidden;
   background: var(--dsw-alias-bg-base);
-  /* Collapse/expand animates the tracks on the deepsuite sider curve
+  /* Sidebar resize animates the frame track on the deepsuite sider curve
      (--ds-ease-in-out / --ds-transition-duration-slow, ui-theme base.css). */
+  transition: grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out);
+}
+
+/* The right area: center + details on the top row, the docked panel below.
+   The sidebar stays a full-height column beside it, so the panel never pushes
+   it up. */
+.right {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The top row of the right area: center + details columns, anchoring the
+   details drag handle. */
+.main {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   transition: grid-template-columns var(--ds-transition-duration-slow) var(--ds-ease-in-out);
 }
 
 /* Dragging writes widths at pointer cadence; easing them would detach the
    column from the handle. */
-.frame[data-dragging] {
+.frame[data-dragging],
+.frame[data-dragging] .main {
   transition: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .frame {
+  .frame,
+  .main {
     transition: none;
   }
+}
+
+.panelRow {
+  min-width: 0;
+  overflow: hidden;
 }
 
 .sidebarCol {

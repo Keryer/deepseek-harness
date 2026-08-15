@@ -282,6 +282,33 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
         return { rpcId: request.rpcId, result: { ok: true, value: { models: [] } } }
       },
     },
+    terminal: {
+      async open(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { id: 'pty-1', type: 'shell', status: { kind: 'running' }, motd: '' } } }
+      },
+      async send(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { viewport: '', waitReason: 'stdin_read', sessionStatus: { kind: 'running' }, truncated: false } } }
+      },
+      async read(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { text: '', totalLines: 0, lineBegin: 0, lineEnd: 0, truncated: false } } }
+      },
+      async write(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
+      },
+      async resize(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { accepted: true as const } } }
+      },
+      async signal(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { targetPgid: 1 } } }
+      },
+      async close(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { closed: true as const } } }
+      },
+      async list(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { sessions: [] } } }
+      },
+      async *stream() { /* no terminal frames in the carrier fixture */ },
+    },
     events: {
       mux: (_request, signal) => stream(muxFrames, signal),
       host: (_request, signal) => stream(hostFrames, signal),

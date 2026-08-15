@@ -78,6 +78,9 @@
       "path": "../../jobs/jobs"
     },
     {
+      "path": "../../terminal/terminal"
+    },
+    {
       "path": "../../interaction/commands"
     },
     {

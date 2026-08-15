@@ -45,6 +45,7 @@ class FakeTerminal implements SubprocessTerminalHandle {
   pid = 123
   readonly output = new PassThrough()
   readonly writes: string[] = []
+  readonly resizes: Array<[number, number]> = []
   readonly kills: string[] = []
   readonly outcome = Promise.withResolvers<SubprocessOutcome>()
   readonly done = this.outcome.promise
@@ -84,6 +85,10 @@ class FakeTerminal implements SubprocessTerminalHandle {
   async write(data: string): Promise<void> {
     if (this.throwWrite) throw new Error('write failed')
     this.writes.push(data)
+  }
+
+  async resize(cols: number, rows: number): Promise<void> {
+    this.resizes.push([cols, rows])
   }
 
   async inspectForeground() {
@@ -1178,6 +1183,36 @@ describe('LocalPtySession bounds, signals, and teardown', () => {
     await expect(closing).rejects.toThrow('PTY cleanup failed (test)')
     expect(() => session.startSend({ text: '', submit: false })).toThrow('closing')
     await expect(session.signal('SIGTERM')).rejects.toThrow('closing')
+  })
+
+  it('resizes the terminal grid and rejects while closing', async () => {
+    const terminal = new FakeTerminal()
+    const session = makeSession(terminal, new FakeInspector(), config())
+
+    await session.resize({ cols: 120, rows: 40 })
+    expect(terminal.resizes).toEqual([[120, 40]])
+
+    const closing = session.close('test')
+    await expect(session.resize({ cols: 80, rows: 24 })).rejects.toThrow('closing')
+    await closing
+  })
+
+  it('notifies output subscribers as terminal data arrives and honors disposal', async () => {
+    const terminal = new FakeTerminal()
+    const session = makeSession(terminal, new FakeInspector(), config())
+
+    const received: string[] = []
+    const off = session.onOutput((text) => { received.push(text) })
+    terminal.emitData('hello')
+    terminal.emitData(' world')
+    await new Promise(resolve => setImmediate(resolve))
+    expect(received.join('')).toContain('hello')
+
+    off()
+    const count = received.length
+    terminal.emitData('ignored')
+    await new Promise(resolve => setImmediate(resolve))
+    expect(received.length).toBe(count)
   })
 
   it('reports cleanup failure without waiting for top-level exit and permits retry', async () => {

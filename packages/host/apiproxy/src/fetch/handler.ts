@@ -8,7 +8,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { z } from 'zod'
-import type { ApiProxy, MuxFrame, HostFrame } from '../api/index.ts'
+import type { ApiProxy, MuxFrame, HostFrame, TerminalFrame } from '../api/index.ts'
 import { sessionLogQuerySchema } from '../api/downloads.schema.ts'
 import type { RequestPayload, ResponseValue, RpcMethodMap } from '../api/rpc-map.ts'
 import type { ClientRequest, RpcError, RpcRequest, RpcResponse, ServerRequest, ServerResponse } from '../api/rpc.ts'
@@ -70,6 +70,16 @@ import {
   subagentListRequestSchema,
   subagentPromptRequestSchema,
 } from '../api/subagents.schema.ts'
+import {
+  terminalCloseRequestSchema,
+  terminalListRequestSchema,
+  terminalOpenRequestSchema,
+  terminalReadRequestSchema,
+  terminalResizeRequestSchema,
+  terminalSendRequestSchema,
+  terminalSignalRequestSchema,
+  terminalWriteRequestSchema,
+} from '../api/terminal.schema.ts'
 
 /**
  * Unary dispatch table, keyed by (and compiler-locked to) RpcMethodMap: a map row without a
@@ -140,6 +150,14 @@ const UNARY_ROUTES: UnaryRoutes = {
   'llm.providers': { schema: llmProvidersRequestSchema, invoke: (api, r) => api.llm.providers(r) },
   'llm.models': { schema: llmModelsRequestSchema, invoke: (api, r) => api.llm.models(r) },
   'llm.discoverModels': { schema: llmDiscoverModelsRequestSchema, invoke: (api, r, signal) => api.llm.discoverModels(r, signal) },
+  'terminal.open': { schema: terminalOpenRequestSchema, invoke: (api, r) => api.terminal.open(r) },
+  'terminal.send': { schema: terminalSendRequestSchema, invoke: (api, r) => api.terminal.send(r) },
+  'terminal.read': { schema: terminalReadRequestSchema, invoke: (api, r) => api.terminal.read(r) },
+  'terminal.write': { schema: terminalWriteRequestSchema, invoke: (api, r) => api.terminal.write(r) },
+  'terminal.resize': { schema: terminalResizeRequestSchema, invoke: (api, r) => api.terminal.resize(r) },
+  'terminal.signal': { schema: terminalSignalRequestSchema, invoke: (api, r) => api.terminal.signal(r) },
+  'terminal.close': { schema: terminalCloseRequestSchema, invoke: (api, r) => api.terminal.close(r) },
+  'terminal.list': { schema: terminalListRequestSchema, invoke: (api, r) => api.terminal.list(r) },
 }
 
 /** Route lookup that narrows an arbitrary path segment to a map key (single cast point for the string→key refinement). */
@@ -192,7 +210,7 @@ async function handleUnary<K extends keyof RpcMethodMap>(
 }
 
 /** SSE frame: complete the narrow RpcRequest<frame> into a ServerRequest full form (method = frame type). */
-function fullFrame(narrow: RpcRequest<MuxFrame | HostFrame>): ServerRequest {
+function fullFrame(narrow: RpcRequest<MuxFrame | HostFrame | TerminalFrame>): ServerRequest {
   return { type: 'server-request', rpcId: narrow.rpcId, method: narrow.payload.type, payload: narrow.payload }
 }
 
@@ -200,7 +218,7 @@ function fullFrame(narrow: RpcRequest<MuxFrame | HostFrame>): ServerRequest {
  * Wrap a frame stream as an SSE Response; stops when req.signal aborts. An
  * impl throw mid-stream emits one stream/error frame and then closes.
  */
-function sseResponse(frames: AsyncIterable<RpcRequest<MuxFrame | HostFrame>>): Response {
+function sseResponse(frames: AsyncIterable<RpcRequest<MuxFrame | HostFrame | TerminalFrame>>): Response {
   const encoder = new TextEncoder()
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -216,7 +234,7 @@ function sseResponse(frames: AsyncIterable<RpcRequest<MuxFrame | HostFrame>>): R
         // Mid-stream impl failure → one stream/error frame, then close: the client must see
         // the failure instead of a silent end (which reads as a normal disconnect). A fresh
         // rpcId is minted — this is a server-initiated push like any other frame.
-        const failure: MuxFrame | HostFrame = { type: 'stream/error', error: { code: 'internal', message: String(error), details: {} } }
+        const failure: MuxFrame | HostFrame | TerminalFrame = { type: 'stream/error', error: { code: 'internal', message: String(error), details: {} } }
         try {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(fullFrame({ rpcId: RpcId(randomUUID()), payload: failure }))}\n\n`))
         } catch {
@@ -256,6 +274,9 @@ export function toFetchHandler(api: ApiProxy): { fetch: typeof fetch } {
       }
       if (path === '/api/events.host' && req.method === 'GET') {
         return sseResponse(api.events.host({ rpcId: RpcId(randomUUID()), payload: {} }, req.signal))
+      }
+      if (path === '/api/events.terminal' && req.method === 'GET') {
+        return sseResponse(api.terminal.stream({ rpcId: RpcId(randomUUID()), payload: {} }, req.signal))
       }
       if (path === '/api/session.export' && (req.method === 'GET' || req.method === 'HEAD')) {
         // Query params are a different boundary from the POST envelope, but

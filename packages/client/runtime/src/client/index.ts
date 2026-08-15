@@ -8,6 +8,7 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { TypertContext } from '@deepseek-ai/dsh-typert-protocol'
 import type { MaybeSnapshotSelectorHook, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import { SlotRegistry } from './slots.ts'
+import { TerminalFeed } from './terminal-feed.ts'
 import { SessionRuntime } from './sessions/service.ts'
 import type { SessionListState } from './sessions/service.ts'
 import { WorkspaceRuntime } from './workspaces/service.ts'
@@ -19,6 +20,8 @@ import { ConversationViewRegistry } from './conversation/view-registry.ts'
 export { isAppendSurfaceEvent, isReplacementSurfaceEvent } from '@deepseek-ai/dsh-session/surface'
 
 export { SlotRegistry } from './slots.ts'
+export { TerminalFeed } from './terminal-feed.ts'
+export type { TerminalOutput } from './terminal-feed.ts'
 export { ConversationEventRegistry } from './conversation/event-registry.ts'
 export { ConversationViewRegistry } from './conversation/view-registry.ts'
 export { ConversationNodeAssembler } from './sessions/conversation-assembler.ts'
@@ -176,6 +179,8 @@ declare module '@deepseek-ai/cordis' {
     sessions: import('./contract/sessions.ts').ISessions
     /** The outward face only; the concrete service stays inside the runtime. */
     workspaces: import('./contract/workspaces.ts').IWorkspaces
+    /** React-free live terminal output fan-out (the xterm surface subscribes). */
+    terminalFeed: import('./terminal-feed.ts').TerminalFeed
   }
 }
 
@@ -192,6 +197,7 @@ export function apply(ctx: Context): void {
     views: new ConversationViewRegistry(ctx),
   }
   const connection = ctx.get('connection') as ConnectionHandle
+  const terminalFeed = new TerminalFeed(ctx)
   const sessions = new SessionRuntime(ctx, connection.api, ctx.remote, conversation)
   ctx.typert.contexts.registerClient('agent', {
     identity: candidate => sessions.scopeOf(candidate),
@@ -204,6 +210,9 @@ export function apply(ctx: Context): void {
   const loop = connection.start({
     onMuxEnvelope: (envelope) => {
       sessions.handleMuxEnvelope(envelope)
+    },
+    onTerminalEnvelope: (envelope) => {
+      terminalFeed.handleTerminalEnvelope(envelope)
     },
     onHostEnvelope: (envelope) => {
       sessions.handleHostEnvelope(envelope)
@@ -218,6 +227,7 @@ export function apply(ctx: Context): void {
     onConnected: () => {
       sessions.handleConnected()
       workspaces.handleConnected()
+      terminalFeed.handleConnected()
       ctx.emit('connection/reset')
     },
     onStateChange: (state) => {

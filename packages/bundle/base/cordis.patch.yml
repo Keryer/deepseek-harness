@@ -69,6 +69,24 @@
     - id: jobs
       name: '@deepseek-ai/dsh-jobs-local'
 
+    # The persistent PTY registry and its local shell backends are host-plane,
+    # following the jobs/goals/skills precedent: owner-keyed by Agent, so one
+    # host instance serves every session — both the model-facing tool-terminal
+    # (preset) and the human embedded terminal (host RPC) read the same seams.
+    # Each platform mounts exactly one shell backend under a distinct registry
+    # type: bash (POSIX-only) is disabled on Windows, and PowerShell (Windows
+    # ConPTY, human-terminal only) is disabled elsewhere.
+    - id: terminals
+      name: '@deepseek-ai/dsh-terminal'
+
+    - id: terminal-bash
+      name: '@deepseek-ai/dsh-terminal-bash'
+      disabled: !!js process.platform === 'win32'
+
+    - id: terminal-pwsh
+      name: '@deepseek-ai/dsh-terminal-pwsh'
+      disabled: !!js process.platform !== 'win32'
+
     - id: llm-retry
       name: '@deepseek-ai/dsh-llm-retry'
 

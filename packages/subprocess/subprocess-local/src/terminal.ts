@@ -11,6 +11,7 @@ import type {
   SubprocessTerminalSignal,
 } from '@deepseek-ai/dsh-subprocess'
 import type { ProcessIdentity, ProcessInspector } from './process-inspector.ts'
+import { taskkillProcessTree } from './spawn.ts'
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -50,11 +51,15 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
    * @param terminal - allocated node-pty process.
    * @param inspector - platform process/session operations.
    * @param graceMs - TERM-to-KILL and exit-wait grace.
+   * @param platform - host platform for tree-teardown decisions.
+   * @param taskkill - Windows tree terminator; defaults to `taskkill /T /F`.
    */
   constructor(
     private readonly terminal: IPty,
     private readonly inspector: ProcessInspector,
     private readonly graceMs: number,
+    private readonly platform: NodeJS.Platform = process.platform,
+    private readonly taskkill: (pid: number) => void = taskkillProcessTree,
   ) {
     this.pid = terminal.pid
     this.rootIdentity = inspector.processTree(this.pid).find(member => member.pid === this.pid)
@@ -76,6 +81,13 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
   async write(data: string): Promise<void> {
     if (this.exited) throw new Error('terminal process has exited')
     this.terminal.write(data)
+  }
+
+  // node-pty resizes synchronously; the seam returns a promise for remote transports.
+  // oxlint-disable-next-line typescript/require-await -- Preserve promise rejection semantics at the async provider contract.
+  async resize(cols: number, rows: number): Promise<void> {
+    if (this.exited) throw new Error('terminal process has exited')
+    this.terminal.resize(cols, rows)
   }
 
   // Local inspection is synchronous; the seam returns a promise for remote transports.
@@ -115,6 +127,10 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
    * event. This does not claim quiescence and does not replace terminate().
    */
   terminateForHostExit(): void {
+    // Windows ConPTY owns no process group, so tree termination is taskkill's
+    // job; take the whole tree before the per-member force stops (which are
+    // no-ops on Windows, whose inspector reports no descendants).
+    if (this.platform === 'win32') this.taskkill(this.pid)
     this.forceStopDescendants()
     this.forceStopShell()
     this.forceStopDescendants()
@@ -234,6 +250,10 @@ export class LocalTerminalHandle implements SubprocessTerminalHandle {
   }
 
   private async closeOnce(): Promise<void> {
+    // Windows has no per-descendant signalling (the inspector reports no tree),
+    // so take the whole tree through taskkill before the shell escalation; the
+    // direct-child exit below remains the observable quiescence boundary.
+    if (this.platform === 'win32') this.taskkill(this.pid)
     let survivors = await this.stopDescendants()
     if (survivors.length > 0) {
       throw new Error(`terminal cleanup failed; surviving pids: ${survivors.map(member => member.pid).join(', ')}`)

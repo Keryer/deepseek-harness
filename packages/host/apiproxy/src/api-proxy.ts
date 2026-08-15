@@ -39,7 +39,7 @@ import type {
   ModelCatalogFailure, ModelProviderGroup,
   ModelReasoning, MuxFrame, PromptContentPart, QuestionResponsePayload, SessionListMetadata, SessionProjectionsBlock, SessionSearchItem,
   QueuedInboxItem, SessionSummary, SettingsNamespaceView, SubagentAddress, JobView, ToolEventView,
-  WorkspaceId, WorkspaceView,
+  TerminalFrame, WorkspaceId, WorkspaceView,
 } from './api/index.ts'
 import {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
@@ -61,6 +61,9 @@ import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only: resolves `ctx.get('tasks')` to the background job registry.
 import type {} from '@deepseek-ai/dsh-jobs'
 import type { JobSnapshot } from '@deepseek-ai/dsh-jobs'
+// The PTY seam (runtime error class + id brand); the Context merge makes
+// `ctx.get('terminals')` resolve to the owner-scoped registry.
+import { TerminalError, TerminalSessionId } from '@deepseek-ai/dsh-terminal'
 // Type-only: resolves `ctx.get('sessionProjectionCache')` (the cold listing column).
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 // GoalError narrows domain rejections to their stable codes at the wire boundary.
@@ -348,6 +351,44 @@ async function buildModelCatalog(ctx: Context): Promise<{
 /** Wrap an error result echoing the request's rpcId. */
 function err<T>(request: RpcRequest<unknown>, error: RpcError): RpcResponse<T> {
   return { rpcId: request.rpcId, result: { ok: false, error } }
+}
+
+/** The live owner-scoped terminal registry and its exact owner, or the refusal to answer. */
+function resolveTerminal(
+  ctx: Context,
+  request: RpcRequest<{ sessionId: SessionId }>,
+): { terminals: NonNullable<Context['terminals']>; agent: Agent } | RpcResponse<never> {
+  const terminals = ctx.get('terminals')
+  if (terminals === undefined) {
+    return err(request, { code: 'terminal-unavailable', message: 'terminal service is not composed', details: {} })
+  }
+  const agent = ctx.agents.get(request.payload.sessionId)
+  if (agent === undefined) {
+    return err(request, { code: 'session-not-found', message: 'session has no live agent', details: { sessionId: request.payload.sessionId } })
+  }
+  return { terminals, agent }
+}
+
+/** Map a PTY seam failure to its stable wire refusal. */
+function terminalFailure(
+  request: RpcRequest<{ sessionId: SessionId; id?: string }>,
+  error: unknown,
+): RpcResponse<never> {
+  if (error instanceof TerminalError) {
+    if (error.code === 'NO_BACKEND') {
+      return err(request, { code: 'terminal-unavailable', message: error.message, details: {} })
+    }
+    if (error.code === 'OWNER_NOT_LIVE') {
+      return err(request, { code: 'session-not-found', message: error.message, details: { sessionId: request.payload.sessionId } })
+    }
+    if (request.payload.id !== undefined && (error.code === 'NO_SESSION' || error.code === 'FOREIGN_SESSION')) {
+      return err(request, { code: 'terminal-not-found', message: error.message, details: { sessionId: request.payload.sessionId, id: request.payload.id } })
+    }
+    if (request.payload.id !== undefined && error.code === 'SEND_ACTIVE') {
+      return err(request, { code: 'terminal-busy', message: error.message, details: { sessionId: request.payload.sessionId, id: request.payload.id } })
+    }
+  }
+  return err(request, { code: 'internal', message: error instanceof Error ? error.message : String(error), details: {} })
 }
 
 /**
@@ -3360,6 +3401,150 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             details: { settingsNs, ...baseURL === undefined ? {} : { baseURL } },
           })
         }
+      },
+    },
+
+    terminal: {
+      async open(request) {
+        const terminals = ctx.get('terminals')
+        if (terminals === undefined) return err(request, { code: 'terminal-unavailable', message: 'terminal service is not composed', details: {} })
+        // The human terminal follows the session, not the model agent: opening
+        // it resolves the session's live agent (implicit cold resume — the
+        // command.*/goal precedent), so a cold session still opens its terminal.
+        const found = await agentFor(request.payload.sessionId)
+        if ('error' in found) return err(request, found.error)
+        const agent = found.agent
+        const type = request.payload.type ?? terminals.listBackends()[0]
+        if (type === undefined) return err(request, { code: 'terminal-unavailable', message: 'no PTY backend registered', details: {} })
+        try {
+          const created = await terminals.spawn(agent, {
+            type,
+            ...request.payload.cwd !== undefined ? { cwd: request.payload.cwd } : {},
+            ...request.payload.name !== undefined ? { name: request.payload.name } : {},
+          })
+          return ok(request, {
+            id: created.sessionId,
+            ...created.name !== undefined ? { name: created.name } : {},
+            type: created.type,
+            ...created.pid !== undefined ? { pid: created.pid } : {},
+            status: created.status,
+            motd: created.motd,
+          })
+        } catch (error) {
+          return terminalFailure(request, error)
+        }
+      },
+      async send(request) {
+        const scope = resolveTerminal(ctx, request)
+        if ('result' in scope) return scope
+        const id = TerminalSessionId(request.payload.id)
+        try {
+          const operation = scope.terminals.startSend(scope.agent, id, { text: request.payload.text, submit: request.payload.submit })
+          return ok(request, await operation.done)
+        } catch (error) {
+          return terminalFailure(request, error)
+        }
+      },
+      read(request) {
+        const scope = resolveTerminal(ctx, request)
+        if ('result' in scope) return Promise.resolve(scope)
+        const id = TerminalSessionId(request.payload.id)
+        return Promise.resolve(ok(request, scope.terminals.read(scope.agent, id, {
+          ...request.payload.offset !== undefined ? { offset: request.payload.offset } : {},
+          ...request.payload.count !== undefined ? { count: request.payload.count } : {},
+        })))
+      },
+      async resize(request) {
+        const scope = resolveTerminal(ctx, request)
+        if ('result' in scope) return scope
+        const id = TerminalSessionId(request.payload.id)
+        try {
+          await scope.terminals.resize(scope.agent, id, { cols: request.payload.cols, rows: request.payload.rows })
+          return ok(request, { accepted: true })
+        } catch (error) {
+          return terminalFailure(request, error)
+        }
+      },
+      async write(request) {
+        const scope = resolveTerminal(ctx, request)
+        if ('result' in scope) return scope
+        const id = TerminalSessionId(request.payload.id)
+        try {
+          await scope.terminals.write(scope.agent, id, request.payload.text)
+          return ok(request, { accepted: true })
+        } catch (error) {
+          return terminalFailure(request, error)
+        }
+      },
+      async signal(request) {
+        const scope = resolveTerminal(ctx, request)
+        if ('result' in scope) return scope
+        const id = TerminalSessionId(request.payload.id)
+        try {
+          const result = await scope.terminals.signal(scope.agent, id, request.payload.signal)
+          return ok(request, { targetPgid: result.targetPgid })
+        } catch (error) {
+          return terminalFailure(request, error)
+        }
+      },
+      async close(request) {
+        const scope = resolveTerminal(ctx, request)
+        if ('result' in scope) return scope
+        const id = TerminalSessionId(request.payload.id)
+        try {
+          const closed = await scope.terminals.kill(scope.agent, id, 'user request')
+          return ok(request, { closed })
+        } catch (error) {
+          return terminalFailure(request, error)
+        }
+      },
+      list(request) {
+        const scope = resolveTerminal(ctx, request)
+        if ('result' in scope) return Promise.resolve(scope)
+        const sessions = scope.terminals.list(scope.agent).map(session => ({
+          id: session.sessionId,
+          ...session.name !== undefined ? { name: session.name } : {},
+          type: session.type,
+          ...session.pid !== undefined ? { pid: session.pid } : {},
+          status: session.status,
+        }))
+        return Promise.resolve(ok(request, { sessions }))
+      },
+      stream(_request, signal) {
+        const queue = new FrameQueue<RpcRequest<TerminalFrame>>()
+        const terminals = ctx.get('terminals')
+        if (terminals === undefined) {
+          // No terminal capability composed: the stream stays open but idle, so
+          // a deployment without the PTY registry costs no frames and never
+          // breaks the connection loop with a spurious stream/error.
+          return queue.iterate(signal, () => {})
+        }
+        const disposers: (() => void)[] = []
+        const subscribeOutput = (sessionId: SessionId, agent: Agent, id: TerminalSessionId): void => {
+          disposers.push(terminals.onOutput(agent, id, (data) => {
+            queue.push(frame({ type: 'terminal/output', sessionId, id, data }))
+          }))
+        }
+        for (const session of ctx.sessions.list()) {
+          const agent = ctx.agents.get(session.id)
+          if (agent === undefined) continue
+          for (const snapshot of terminals.list(agent)) {
+            const text = terminals.read(agent, snapshot.sessionId, {}).text
+            if (text.length > 0) {
+              queue.push(frame({ type: 'terminal/output', sessionId: session.id, id: snapshot.sessionId, data: text }))
+            }
+            subscribeOutput(session.id, agent, snapshot.sessionId)
+          }
+        }
+        // Terminals opened after this stream's baseline snapshot: `open` already
+        // returned their motd, so only the live-output subscription is needed.
+        const offCreated = terminals.onCreated((agent, snapshot) => {
+          subscribeOutput(agent.id, agent, snapshot.sessionId)
+        })
+        return queue.iterate(signal, () => {
+          offCreated()
+          for (const dispose of disposers) dispose()
+        })
       },
     },
 

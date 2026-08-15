@@ -151,6 +151,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
   inputTriggers: 'client-side interface-typed browser service — packages/client/ui-input-trigger/README.md owns the API',
   timer: 'client-side dynamic-package timer service — packages/extensions/cordis-client-runner/README.md owns the API',
   slots: 'client-side interface-typed browser service — packages/client/runtime/README.md owns the API',
+  terminalFeed: 'client-side interface-typed browser service — packages/client/runtime/README.md owns the API',
   theme: 'client-side interface-typed browser service — packages/client/ui-theme/README.md owns the API',
   workspaces: 'client-side interface-typed browser service — packages/client/runtime/README.md owns the API',
 }
@@ -346,6 +347,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   TerminalBackend: 'terminal.md',
   TerminalReadRequest: 'terminal.md',
   TerminalReadResult: 'terminal.md',
+  TerminalResizeRequest: 'terminal.md',
   TerminalSendOperation: 'terminal.md',
   TerminalSendRequest: 'terminal.md',
   TerminalSessionId: 'terminal.md',

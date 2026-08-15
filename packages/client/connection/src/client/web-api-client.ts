@@ -1,10 +1,11 @@
 /** Browser API carrier: HTTP upstream plus one WebSocket per downstream event stream. */
 
-import type { ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest } from './api.ts'
+import type { ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest, TerminalFrame } from './api.ts'
 import { AbstractApiClient } from './api.ts'
 import { hostFrameSchema, muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
+import { terminalFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/terminal.schema'
 import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
-import { HOST_EVENTS_PATH, MUX_EVENTS_PATH } from '../api-path.ts'
+import { HOST_EVENTS_PATH, MUX_EVENTS_PATH, TERMINAL_EVENTS_PATH } from '../api-path.ts'
 
 type SocketItem<F> = { kind: 'frame'; envelope: RpcRequest<F> } | { kind: 'end' }
 type Parser<F> = { parse(value: unknown): F }
@@ -31,7 +32,15 @@ export class WebApiClient extends AbstractApiClient {
     return this.readWebSocket(HOST_EVENTS_PATH, signal, hostFrameSchema, onOpen)
   }
 
-  private async *readWebSocket<F extends MuxFrame | HostFrame>(
+  protected override openTerminal(
+    _payload: Parameters<ApiProxy['terminal']['stream']>[0]['payload'],
+    signal: AbortSignal,
+    onOpen?: () => void,
+  ): AsyncIterable<RpcRequest<TerminalFrame>> {
+    return this.readWebSocket(TERMINAL_EVENTS_PATH, signal, terminalFrameSchema, onOpen)
+  }
+
+  private async *readWebSocket<F extends MuxFrame | HostFrame | TerminalFrame>(
     path: string,
     signal: AbortSignal,
     frameSchema: Parser<F>,
