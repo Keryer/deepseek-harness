@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Web 内嵌终端功能插件：布局所有的 `shell.overlay` 槽里的悬浮切换按钮，打开/关闭布局 `shell.panel` 底部停靠的终端面板（xterm）。面板停靠在中间/详情列下方——会话栏保持全高——跟随当前会话，通过 `terminal/output` WebSocket 下行流实时推送输出，按键直接写入宿主 PTY，拖动顶部分割条可调整高度，跟随页面背景色，并在浅色主题下切换为浅色 ANSI 配色。
+Web 内嵌终端功能插件：会话栏 `sidebar.footer.action` 位（设置上方、样式与设置脚部触发器一致）的切换按钮，打开/关闭布局 `shell.panel` 底部停靠的终端面板（xterm）。面板停靠在中间/详情列下方——会话栏保持全高——跟随当前会话，通过 `terminal/output` WebSocket 下行流实时推送输出，按键直接写入宿主 PTY，拖动顶部分割条可调整高度，跟随页面背景色，并在浅色主题下切换为浅色 ANSI 配色。
 
 宿主半侧刻意留空：终端 RPC 域在宿主 `apiproxy`，终端对象层状态（`ctx.terminalFeed`）在客户端 `runtime`；本包把两者窄化成一个 inject 面，并通过插槽系统渲染页面。一个共享的终端 store（打开状态 + 面板高度）同时驱动切换按钮与面板。
 

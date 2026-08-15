@@ -1,16 +1,19 @@
 /**
- * Embedded-terminal UI plugin, browser half: a floating toggle button in the
- * layout-owned `shell.overlay` list slot plus the docked panel in the layout
- * `shell.panel` single slot. One terminal store (shared handle) drives both, so
- * the toggle and the panel's close button stay in sync. The inject face narrows
- * the host terminal RPC domain and the runtime terminal feed into the panel's
- * callbacks, so the components never reach the wire or the object layer.
+ * Embedded-terminal UI plugin, browser half: a toggle button in the sidebar's
+ * `sidebar.footer.action` seat (above Settings) plus the docked panel in the
+ * layout `shell.panel` single slot. One terminal store (shared handle) drives
+ * both, so the toggle and the panel's close button stay in sync. The inject
+ * face narrows the host terminal RPC domain and the runtime terminal feed into
+ * the panel's callbacks, so the components never reach the wire or the object
+ * layer.
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { TerminalFeed } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
-// Type-only: pulls ui-layout's SlotMap merge (the 'shell.overlay'/'shell.panel' entries).
+// Type-only: pulls ui-layout's SlotMap merge (the 'shell.panel' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+// Type-only: pulls ui-sidebar's SlotMap merge (the 'sidebar.footer.action' entry).
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { TerminalToggle } from './TerminalToggle.tsx'
 import { TerminalPanel, type TerminalFace } from './TerminalPanel.tsx'
 import { createTerminalStore } from './stores.ts'
@@ -53,8 +56,8 @@ export function apply(ctx: ClientContext): void {
 
   const store = createTerminalStore()
 
-  ctx.slots.inject('shell.overlay', () => ctx.slots.register(
-    { name: 'shell.overlay', id: 'terminal', store },
+  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register(
+    { name: 'sidebar.footer.action', id: 'terminal', store },
     TerminalToggle,
   ))
 

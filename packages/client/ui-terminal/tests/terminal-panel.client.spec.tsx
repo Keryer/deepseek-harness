@@ -74,6 +74,7 @@ describe('TerminalToggle', () => {
   it('labels itself by dock state and toggles on click', () => {
     const instance = createTerminalStore().create()
     const props: TerminalToggleProps = {
+      wide: true,
       useStore: hookOf(instance),
       actions: instance.actions,
       useSessions,
@@ -86,6 +87,20 @@ describe('TerminalToggle', () => {
     rerender(<TerminalToggle {...props} />)
     expect(screen.getByRole('button', { name: '关闭终端' }).getAttribute('aria-expanded')).toBe('true')
     expect(instance.store.getSnapshot().open).toBe(true)
+  })
+
+  it('renders the icon-only rail while collapsed', () => {
+    const instance = createTerminalStore().create()
+    const props: TerminalToggleProps = {
+      wide: false,
+      useStore: hookOf(instance),
+      actions: instance.actions,
+      useSessions,
+      useWorkspaces,
+    }
+    render(<TerminalToggle {...props} />)
+    const button = screen.getByRole('button', { name: '打开终端' })
+    expect(button.textContent).toBe('')
   })
 })
 

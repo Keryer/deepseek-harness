@@ -37,7 +37,7 @@ async function bench() {
     {
       name: 'root',
       children: {
-        'shell.overlay': { kind: 'list', scope: 'root' },
+        'sidebar.footer.action': { kind: 'list', scope: 'root' },
         'shell.panel': { kind: 'single', scope: 'root' },
       },
     } as never,
@@ -61,13 +61,13 @@ describe('apply', () => {
     expect(inject).toEqual(['slots', 'connection', 'terminalFeed'])
   })
 
-  it('registers the toggle into the overlay slot and the panel into the panel slot', async () => {
+  it('registers the toggle into the footer-action slot and the panel into the panel slot', async () => {
     const { ctx, slots } = await bench()
     await ctx.plugin({ inject: [...inject], apply }).await()
-    const overlay = slots.entries('shell.overlay')
+    const action = slots.entries('sidebar.footer.action')
     const panel = slots.entries('shell.panel')
-    expect(overlay).toHaveLength(1)
-    expect(overlay[0]!.component).toBe(TerminalToggle)
+    expect(action).toHaveLength(1)
+    expect(action[0]!.component).toBe(TerminalToggle)
     expect(panel).toHaveLength(1)
     expect(panel[0]!.component).toBe(TerminalPanel)
   })
@@ -76,10 +76,10 @@ describe('apply', () => {
     const { ctx, slots } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(slots.entries('shell.overlay')).toHaveLength(1)
+    expect(slots.entries('sidebar.footer.action')).toHaveLength(1)
     expect(slots.entries('shell.panel')).toHaveLength(1)
     await fiber.dispose()
-    expect(slots.entries('shell.overlay')).toHaveLength(0)
+    expect(slots.entries('sidebar.footer.action')).toHaveLength(0)
     expect(slots.entries('shell.panel')).toHaveLength(0)
   })
 })
