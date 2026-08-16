@@ -2,11 +2,11 @@
 
 [English](README.md) | 中文
 
-这是面向 POSIX、基于 `ctx.subprocess.spawnTerminal` 的 `ctx.terminals` 人类内嵌终端后端。它通过 subprocess 终端原语（node-pty）启动 `/bin/bash`，将原始 UTF-8 输出——保留 ANSI——流式传给 Web GUI 的 xterm 界面，并转发原始写入、resize 和整树清理。逐行、面向模型的终端界面仍留在同族 `@deepseek-ai/dsh-terminal-bash` 后端（类型 `shell`）上，其被净化的 `TERM=dumb` 输出与受控提示符不适合交互式人类终端。
+这是面向 POSIX、基于 `ctx.subprocess.spawnTerminal` 的 `ctx.terminals` 人类内嵌终端后端。它通过 subprocess 终端原语（node-pty）启动用户的登录 shell（`$SHELL`，macOS 上回退到 `/bin/zsh`，其余回退到 `/bin/bash`），将原始 UTF-8 输出——保留 ANSI——流式传给 Web GUI 的 xterm 界面，并转发原始写入、resize 和整树清理。逐行、面向模型的终端界面仍留在同族 `@deepseek-ai/dsh-terminal-bash` 后端（类型 `shell`）上，其被净化的 `TERM=dumb` 输出与受控提示符不适合交互式人类终端。
 
 ## 插件（`terminal-bash-human`）
 
-该插件注入 `terminals` 和 `subprocess`，然后注册所配置的后端类型（`bash-human`）。spawn 时，后端在调用方 cwd（调用方省略时为 harness 工作目录）中以 `shellArgs`（`-i`，从而由 `.bashrc` 载入用户的别名、`LS_COLORS` 与提示符）打开 `shellPath`（`/bin/bash`），最多等待 `startupTimeoutMs` 取得 shell 的首段输出作为打开时的 motd，并返回一个将原始输出流式传给订阅方的会话。`startSend` 与 `signal` 会拒绝：人类终端把按键作为原始写入转发（Ctrl+C 以 `\x03` 到达，由 PTY 行规程转译为前台中断），因此无需遵循 POSIX 就绪或前台进程组约定。关闭操作通过 subprocess 原语终止整个会话树并等待静默。
+该插件注入 `terminals` 和 `subprocess`，然后注册所配置的后端类型（`bash-human`）。spawn 时，后端在调用方 cwd（调用方省略时为 harness 工作目录）中以 `shellArgs`（`-i`，从而由 shell 的交互式 rc 文件载入用户的别名、`LS_COLORS` 与提示符）打开 `shellPath`（空则解析登录 shell；非空值原样信任），最多等待 `startupTimeoutMs` 取得 shell 的首段输出作为打开时的 motd，并返回一个将原始输出流式传给订阅方的会话。`startSend` 与 `signal` 会拒绝：人类终端把按键作为原始写入转发（Ctrl+C 以 `\x03` 到达，由 PTY 行规程转译为前台中断），因此无需遵循 POSIX 就绪或前台进程组约定。关闭操作通过 subprocess 原语终止整个会话树并等待静默。
 
 ## 模型体验
 
@@ -28,5 +28,5 @@
 
 - 原始 ANSI 为 xterm 保留，因此全屏与彩色渲染取决于客户端的终端仿真器；重连后 scrollback 回放会重新发出保留的原始字节。
 - 不支持逐行 send 与前台信号：该后端仅为人类终端这一半，面向模型的终端仍留在 `terminal-bash` 上。
-- shell 会 source `.bashrc`（而非登录 profile），因此启动输出与颜色跟随用户自己的 `.bashrc`；仅登录式设置（`~/.profile`）除非显式 source，否则不会被读取。
+- shell 是用户以交互方式（`-i`）运行的登录 shell：交互式 rc 文件（`.bashrc`、`.zshrc`）会被 source，以提供别名、颜色与提示符，但登录 profile（`.bash_profile`、`.zprofile`）不会被读取。
 - harness 进程退出后，会话无法继续存在。

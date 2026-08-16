@@ -61,7 +61,7 @@ class StubSubprocessRuntime extends SubprocessRuntime {
 describe('BashHumanTerminalBackend', () => {
   it('rejects a pre-aborted spawn', async () => {
     const ctx = new Context()
-    const backend = new BashHumanTerminalBackend(ctx, config(), async () => terminalHandle())
+    const backend = new BashHumanTerminalBackend(ctx, config(), undefined, async () => terminalHandle())
     const controller = new AbortController()
     const reason = new Error('spawn aborted')
     controller.abort(reason)
@@ -72,7 +72,7 @@ describe('BashHumanTerminalBackend', () => {
     const ctx = new Context()
     const closed = vi.fn<() => Promise<void>>().mockResolvedValue(undefined)
     const failed = { initialize: () => Promise.reject(new Error('startup failed')), close: closed } as unknown as BashHumanPtySession
-    const backend = new BashHumanTerminalBackend(ctx, config(), async () => terminalHandle(), () => failed)
+    const backend = new BashHumanTerminalBackend(ctx, config(), undefined, async () => terminalHandle(), () => failed)
     await expect(backend.spawn(spec(agent(ctx)))).rejects.toThrow('startup failed')
     expect(closed).toHaveBeenCalledWith('PTY startup failed')
 
@@ -82,7 +82,7 @@ describe('BashHumanTerminalBackend', () => {
       initialize: () => Promise.reject(startupFailure),
       close: () => Promise.reject(cleanupFailure),
     } as unknown as BashHumanPtySession
-    const aggregate = new BashHumanTerminalBackend(ctx, config(), async () => terminalHandle(), () => doublyFailed)
+    const aggregate = new BashHumanTerminalBackend(ctx, config(), undefined, async () => terminalHandle(), () => doublyFailed)
     await expect(aggregate.spawn(spec(agent(ctx)))).rejects.toEqual(expect.objectContaining({
       name: 'TerminalBackendCleanupError',
       spawnError: startupFailure,
@@ -102,7 +102,7 @@ describe('BashHumanTerminalBackend', () => {
       },
       close,
     } as unknown as BashHumanPtySession
-    const backend = new BashHumanTerminalBackend(ctx, config(), async () => terminalHandle(), () => session)
+    const backend = new BashHumanTerminalBackend(ctx, config(), undefined, async () => terminalHandle(), () => session)
     const controller = new AbortController()
     const reason = new Error('cancel stalled startup')
 
@@ -124,7 +124,7 @@ describe('BashHumanTerminalBackend', () => {
     }
     const initialized = vi.fn<() => Promise<void>>().mockResolvedValue(undefined)
     const session = { initialize: initialized } as unknown as BashHumanPtySession
-    const backend = new BashHumanTerminalBackend(ctx, config(), spawnTerminal, () => session)
+    const backend = new BashHumanTerminalBackend(ctx, config(), undefined, spawnTerminal, () => session)
 
     expect(await backend.spawn({ ...spec(agent(ctx)), cwd: '/work' })).toBe(session)
 
@@ -145,7 +145,7 @@ describe('BashHumanTerminalBackend', () => {
     const controller = new AbortController()
     const initialized = vi.fn<(signal?: AbortSignal) => Promise<void>>().mockResolvedValue(undefined)
     const session = { initialize: initialized } as unknown as BashHumanPtySession
-    const backend = new BashHumanTerminalBackend(ctx, config(), async () => terminalHandle(), () => session)
+    const backend = new BashHumanTerminalBackend(ctx, config(), undefined, async () => terminalHandle(), () => session)
     await backend.spawn(spec(agent(ctx), controller.signal))
     expect(initialized).toHaveBeenCalledWith(controller.signal)
   })
@@ -157,6 +157,48 @@ describe('BashHumanTerminalBackend', () => {
     const created = await backend.spawn(spec(agent(ctx)))
     expect(created.motd).toBe('')
     await created.close('done')
+  })
+
+  it('spawns the login shell when shellPath is empty and $SHELL names one', async () => {
+    const previous = process.env.SHELL
+    process.env.SHELL = '/usr/local/bin/fish'
+    try {
+      const ctx = new Context()
+      let spawned: SubprocessTerminalSpawnSpec | undefined
+      const backend = new BashHumanTerminalBackend(ctx, { ...config(), shellPath: '' }, undefined, async (spawnSpec) => {
+        spawned = spawnSpec
+        return terminalHandle()
+      })
+      await backend.spawn(spec(agent(ctx)))
+      expect(spawned?.argv[0]).toBe('/usr/local/bin/fish')
+    } finally {
+      if (previous === undefined) delete process.env.SHELL
+      else process.env.SHELL = previous
+    }
+  })
+
+  it('falls back to the platform default shell when $SHELL is empty or unset', async () => {
+    const previous = process.env.SHELL
+    const expected = process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash'
+    for (const shell of ['', undefined]) {
+      if (shell === undefined) delete process.env.SHELL
+      else process.env.SHELL = shell
+      const ctx = new Context()
+      let spawned: SubprocessTerminalSpawnSpec | undefined
+      const backend = new BashHumanTerminalBackend(ctx, { ...config(), shellPath: '' }, undefined, async (spawnSpec) => {
+        spawned = spawnSpec
+        return terminalHandle()
+      })
+      await backend.spawn(spec(agent(ctx)))
+      expect(spawned?.argv[0]).toBe(expected)
+    }
+    if (previous === undefined) delete process.env.SHELL
+    else process.env.SHELL = previous
+  })
+
+  it('fails at construction when shell resolution yields nothing', () => {
+    const ctx = new Context()
+    expect(() => new BashHumanTerminalBackend(ctx, config(), () => '')).toThrow('could not resolve a shell')
   })
 })
 

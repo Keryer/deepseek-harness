@@ -6,7 +6,7 @@ import z from '@deepseek-ai/schemastery'
 export interface Config {
   /** Backend registry type (default: `bash-human`). */
   backendType?: string
-  /** Interactive shell executable (default: `/bin/bash`). */
+  /** Interactive shell executable; empty resolves the login shell (`$SHELL`), else zsh on macOS, bash elsewhere. */
   shellPath?: string
   /** Shell arguments (default: `-i`, an interactive shell that sources `.bashrc`). */
   shellArgs?: string[]
@@ -34,7 +34,7 @@ export type ResolvedConfig = Required<Config>
 /** Schemastery config exposed by the plugin. */
 export const Config: z<Config> = z.object({
   backendType: z.string().default('bash-human'),
-  shellPath: z.string().default('/bin/bash'),
+  shellPath: z.string().default(''),
   shellArgs: z.array(z.string()).default(['-i']),
   rows: z.number().default(40),
   cols: z.number().default(160),
@@ -54,7 +54,6 @@ export const Config: z<Config> = z.object({
 export function validateConfig(config: Config): asserts config is ResolvedConfig {
   const resolved = config as ResolvedConfig
   if (resolved.backendType.length === 0) throw new Error('terminal-bash-human: backendType must be non-empty')
-  if (resolved.shellPath.length === 0) throw new Error('terminal-bash-human: shellPath must be non-empty')
   for (const [name, value] of Object.entries(resolved)) {
     if (typeof value === 'number' && (!Number.isSafeInteger(value) || value <= 0)) {
       throw new Error(`terminal-bash-human: ${name} must be a positive safe integer`)

@@ -1,9 +1,11 @@
 /**
- * Human embedded-terminal PTY backend over bash. Registered under type
- * `bash-human` for POSIX compositions: it spawns `/bin/bash` through the
- * subprocess terminal primitive, streams raw UTF-8 output for xterm, and
- * forwards raw writes, resizes, and teardown. The model-facing line-oriented
- * surface stays on the sibling `terminal-bash` backend under type `shell`.
+ * Human embedded-terminal PTY backend over the user's login shell. Registered
+ * under type `bash-human` for POSIX compositions: it spawns the login shell
+ * (`$SHELL`, falling back to `/bin/zsh` on macOS and `/bin/bash` elsewhere)
+ * through the subprocess terminal primitive, streams raw UTF-8 output for
+ * xterm, and forwards raw writes, resizes, and teardown. The model-facing
+ * line-oriented surface stays on the sibling `terminal-bash` backend under
+ * type `shell`.
  * @module @deepseek-ai/dsh-terminal-bash-human
  */
 
@@ -32,6 +34,18 @@ function childEnvironment(spec: TerminalBackendSpawnSpec): Record<string, string
   }
 }
 
+/**
+ * Resolve the default interactive shell: the user's login shell when `$SHELL`
+ * names one, otherwise the platform default (zsh on macOS, bash elsewhere).
+ * @returns an absolute shell path, or '' when none can be derived.
+ */
+function defaultShellPath(): string {
+  const shell = process.env.SHELL
+  if (shell !== undefined && shell.length > 0) return shell
+  /* v8 ignore next -- the OS-specific fallback is exercised by real composition per platform. */
+  return process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash'
+}
+
 async function initializeSession(session: BashHumanPtySession, signal?: AbortSignal): Promise<void> {
   if (signal === undefined) {
     await session.initialize(signal)
@@ -51,10 +65,12 @@ async function initializeSession(session: BashHumanPtySession, signal?: AbortSig
 /** Bash backend registered under the configured type. */
 export class BashHumanTerminalBackend implements TerminalBackend {
   readonly type: string
+  private readonly shellPath: string
 
   constructor(
     ctx: Context,
     private readonly config: ResolvedConfig,
+    resolveShell: () => string = () => config.shellPath.length > 0 ? config.shellPath : defaultShellPath(),
     private readonly spawnTerminal: (
       spec: SubprocessTerminalSpawnSpec,
     ) => Promise<SubprocessTerminalHandle> = spec => ctx.subprocess.spawnTerminal(spec),
@@ -64,12 +80,14 @@ export class BashHumanTerminalBackend implements TerminalBackend {
     ) => BashHumanPtySession = (terminal, config) => new BashHumanPtySession(terminal, config),
   ) {
     this.type = config.backendType
+    this.shellPath = resolveShell()
+    if (this.shellPath.length === 0) throw new Error('terminal-bash-human: could not resolve a shell executable')
   }
 
   async spawn(spec: TerminalBackendSpawnSpec): Promise<BashHumanPtySession> {
     spec.signal?.throwIfAborted()
     const terminal = await this.spawnTerminal({
-      argv: [this.config.shellPath, ...this.config.shellArgs],
+      argv: [this.shellPath, ...this.config.shellArgs],
       cwd: spec.cwd ?? process.cwd(),
       env: childEnvironment(spec),
       name: 'xterm-256color',
