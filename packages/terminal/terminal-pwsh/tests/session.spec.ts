@@ -146,4 +146,120 @@ describe('PwshPtySession', () => {
     expect(session.close('done')).toBe(first)
     await first
   })
+
+  it('bounds scrollback by bytes and lines and reports truncation', () => {
+    const small = config({ maxReadBytes: 8, scrollbackMaxBytes: 8, scrollbackLines: 2 })
+    const fake = fakeHandle()
+    const session = new PwshPtySession(fake.handle, small)
+    fake.emit('abcdefghij')
+    expect(session.read({})).toMatchObject({ text: 'cdefghij', truncated: true })
+
+    fake.emit('\none\ntwo\nthree\nfour')
+    const read = session.read({})
+    expect(read.truncated).toBe(true)
+    expect(read.text).not.toContain('one')
+  })
+
+  it('rejects write and resize after closing', async () => {
+    const fake = fakeHandle()
+    const session = new PwshPtySession(fake.handle, config())
+    const closing = session.close('done')
+    await expect(session.write('x')).rejects.toThrow('is closing')
+    await expect(session.resize({ cols: 10, rows: 10 })).rejects.toThrow('is closing')
+    await closing
+  })
+
+  it('disposes an output listener', () => {
+    const fake = fakeHandle()
+    const session = new PwshPtySession(fake.handle, config())
+    const listener = vi.fn()
+    const off = session.onOutput(listener)
+    fake.emit('a')
+    off()
+    fake.emit('b')
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it('clears the cached close promise and rethrows a cleanup failure', async () => {
+    const output = new PassThrough()
+    const handle: SubprocessTerminalHandle = {
+      pid: 123,
+      output,
+      done: Promise.resolve({ exitCode: 0, signal: null }),
+      write: async () => {},
+      resize: async () => {},
+      inspectForeground: async () => ({ processGroupId: 123, inputWaiting: false }),
+      signalForeground: async () => 123,
+      terminate: async () => { throw new Error('cleanup failed') },
+    }
+    const session = new PwshPtySession(handle, config())
+    await expect(session.close('done')).rejects.toThrow('PTY cleanup failed')
+    await expect(session.close('done')).rejects.toThrow('PTY cleanup failed')
+  })
+
+  it('marks an output error as a transport failure and surfaces it on close', async () => {
+    const output = new PassThrough()
+    const outcome = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
+    const handle: SubprocessTerminalHandle = {
+      pid: 123,
+      output,
+      done: outcome.promise,
+      write: async () => {},
+      resize: async () => {},
+      inspectForeground: async () => ({ processGroupId: 123, inputWaiting: false }),
+      signalForeground: async () => 123,
+      terminate: async () => {
+        output.end()
+        outcome.resolve({ exitCode: null, signal: null })
+      },
+    }
+    const session = new PwshPtySession(handle, config())
+    output.emit('error', new Error('transport down'))
+    await vi.waitFor(() => { expect(session.status()).toEqual({ kind: 'exited', exitCode: null, signal: null }) })
+    output.end()
+    outcome.resolve({ exitCode: 3, signal: null })
+    await vi.waitFor(() => { expect(session.status()).toEqual({ kind: 'exited', exitCode: null, signal: null }) })
+    await expect(session.close('done')).rejects.toThrow('transport down')
+  })
+
+  it('treats a rejecting done as a non-Error transport failure', async () => {
+    const output = new PassThrough()
+    const handle: SubprocessTerminalHandle = {
+      pid: 123,
+      output,
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- exercises the String(error) arm for a non-Error rejection.
+      done: Promise.reject('transport failure'),
+      write: async () => {},
+      resize: async () => {},
+      inspectForeground: async () => ({ processGroupId: 123, inputWaiting: false }),
+      signalForeground: async () => 123,
+      terminate: async () => { output.end() },
+    }
+    const session = new PwshPtySession(handle, config())
+    await vi.waitFor(() => { expect(session.status()).toEqual({ kind: 'exited', exitCode: null, signal: null }) })
+    await expect(session.close('done')).rejects.toThrow('transport failure')
+  })
+
+  it('reads an empty session as zero lines', () => {
+    const fake = fakeHandle()
+    const session = new PwshPtySession(fake.handle, config())
+    expect(session.read({})).toEqual({ text: '', totalLines: 0, lineBegin: 0, lineEnd: 0, truncated: false })
+  })
+
+  it('swallows a terminate failure during transport teardown', async () => {
+    const output = new PassThrough()
+    const handle: SubprocessTerminalHandle = {
+      pid: 123,
+      output,
+      done: Promise.resolve({ exitCode: 0, signal: null }),
+      write: async () => {},
+      resize: async () => {},
+      inspectForeground: async () => ({ processGroupId: 123, inputWaiting: false }),
+      signalForeground: async () => 123,
+      terminate: async () => { throw new Error('cleanup failed') },
+    }
+    const session = new PwshPtySession(handle, config())
+    output.emit('error', new Error('transport down'))
+    await vi.waitFor(() => { expect(session.status()).toEqual({ kind: 'exited', exitCode: null, signal: null }) })
+  })
 })

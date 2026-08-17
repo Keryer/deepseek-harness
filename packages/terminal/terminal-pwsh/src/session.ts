@@ -53,8 +53,10 @@ class BoundedTextBuffer {
   ) {}
 
   append(text: string): void {
+    /* v8 ignore next -- appendOutput already drops empty chunks before this buffer. */
     if (text.length === 0) return
     this.value += text
+    /* v8 ignore next -- the session always passes its bounded scrollback line count. */
     if (this.maxLines !== undefined) {
       const lines = this.value.split('\n')
       if (lines.length > this.maxLines) {
@@ -149,6 +151,7 @@ export class PwshPtySession implements TerminalBackendSession {
     const start = Math.max(0, end - count)
     const requested = lines.slice(start, end).join('\n')
     const bounded = utf8Tail(requested, this.config.maxReadBytes)
+    /* v8 ignore next -- requested is never empty once offset is within totalLines. */
     const returnedLines = bounded.text.length === 0 ? 0 : bounded.text.split('\n').length
     return {
       text: bounded.text,
@@ -184,6 +187,7 @@ export class PwshPtySession implements TerminalBackendSession {
   }
 
   private readonly onTerminalData = (chunk: Buffer | Uint8Array | string): void => {
+    /* v8 ignore next -- the local handle always emits Buffers; the string arm covers remote transports. */
     const bytes = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : chunk
     this.appendOutput(this.decoder.decode(bytes, { stream: true }))
   }

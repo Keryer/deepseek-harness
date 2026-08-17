@@ -174,6 +174,78 @@ describe('PwshTerminalBackend spawn', () => {
     await expect(spawning).rejects.toBe(reason)
     expect(setupSignal.aborted).toBe(true)
   })
+
+  it('initializes with the caller signal when one is provided', async () => {
+    const ctx = new Context()
+    await ctx.plugin(StubSubprocessRuntime)
+    const controller = new AbortController()
+    const initialized = vi.fn<(signal?: AbortSignal) => Promise<void>>().mockResolvedValue(undefined)
+    const backend = new PwshTerminalBackend(
+      ctx,
+      config(),
+      () => 'pwsh.exe',
+      async () => terminalHandle(),
+      () => stubSession(initialized),
+    )
+    await backend.spawn(spec({ signal: controller.signal }))
+    expect(initialized).toHaveBeenCalledWith(controller.signal)
+  })
+
+  it('spawns through the default resolver and session factory', async () => {
+    const ctx = new Context()
+    await ctx.plugin(StubSubprocessRuntime)
+    const backend = new PwshTerminalBackend(ctx, config())
+    const created = await backend.spawn(spec())
+    expect(created.motd).toBe('')
+    await created.close('done')
+  })
+
+  it('resolves an empty shellPath through the default resolver', async () => {
+    const ctx = new Context()
+    await ctx.plugin(StubSubprocessRuntime)
+    let spawned: SubprocessTerminalSpawnSpec | undefined
+    const backend = new PwshTerminalBackend(
+      ctx,
+      config({ shellPath: '' }),
+      undefined,
+      async (spawnSpec) => { spawned = spawnSpec; return terminalHandle() },
+      () => stubSession(),
+    )
+    await backend.spawn(spec())
+    expect(spawned?.argv[0]).toBeTruthy()
+  })
+
+  it('starts startup rollback when cancellation wins a stalled initialization', async () => {
+    const ctx = new Context()
+    await ctx.plugin(StubSubprocessRuntime)
+    const initialization = Promise.withResolvers<undefined>()
+    const initializationStarted = Promise.withResolvers<undefined>()
+    const close = vi.fn<() => Promise<void>>().mockResolvedValue(undefined)
+    const session = {
+      initialize: () => {
+        initializationStarted.resolve(undefined)
+        return initialization.promise
+      },
+      close,
+    } as unknown as PwshPtySession
+    const backend = new PwshTerminalBackend(
+      ctx,
+      config(),
+      () => 'pwsh.exe',
+      async () => terminalHandle(),
+      () => session,
+    )
+    const controller = new AbortController()
+    const reason = new Error('cancel stalled startup')
+
+    const spawning = backend.spawn(spec({ signal: controller.signal }))
+    await initializationStarted.promise
+    controller.abort(reason)
+
+    await expect(spawning).rejects.toBe(reason)
+    expect(close).toHaveBeenCalledWith('PTY startup failed')
+    initialization.resolve(undefined)
+  })
 })
 
 describe('terminal-pwsh plugin shape', () => {
