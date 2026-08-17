@@ -1765,6 +1765,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'fresh backend type names.',
       },
       {
+        signature: 'onCreated(listener: (owner: Agent, snapshot: TerminalSessionSnapshot) => void): () => void',
+        description: 'Subscribe to publication of new sessions, for consumers whose baseline snapshot predates a later terminal (the Web output stream re-baselines existing sessions at open and attaches to sessions opened after it through this notification; `open` already returns the new session\'s motd, so a subscriber needs no baseline replay, only the live-output subscription).',
+        parameters: [{ name: 'listener', description: 'receives the exact owner and published snapshot.' }],
+        returns: 'disposer that removes exactly this listener.',
+      },
+      {
         signature: 'async spawn(owner: Agent, request: TerminalSpawnRequest, signal?: AbortSignal): Promise<TerminalSpawnResult>',
         description: 'Create and publish one owner-scoped session after backend setup succeeds.',
         parameters: [{ name: 'owner', description: 'exact registered Agent that owns access and cleanup.' }, { name: 'request', description: 'backend type plus optional owner-local name and cwd.' }, { name: 'signal', description: 'cancellation of unpublished setup.' }],
@@ -4254,7 +4260,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubprocessTerminalSpawnSpec',
-    declaration: 'export interface SubprocessTerminalSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    env?: Record<string, string> | undefined;\n    rows: number;\n    cols: number;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n}',
+    declaration: 'export interface SubprocessTerminalSpawnSpec {\n    argv: readonly string[];\n    cwd: string;\n    name?: string | undefined;\n    env?: Record<string, string> | undefined;\n    rows: number;\n    cols: number;\n    graceMs: number;\n    signal?: AbortSignal | undefined;\n}',
   },
   {
     name: 'SurfaceEvent',

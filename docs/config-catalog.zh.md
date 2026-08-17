@@ -2291,6 +2291,42 @@ export interface Config {
 
 来源：[`packages/terminal/terminal-bash/src/config.ts:6`](../packages/terminal/terminal-bash/src/config.ts)
 
+<a id="deepseek-aidsh-terminal-bash-human"></a>
+
+## `@deepseek-ai/dsh-terminal-bash-human`
+
+需要：`terminals` · `subprocess`
+
+```ts config-catalog
+/** Public plugin configuration. */
+export interface Config {
+  /** Backend registry type (default: `bash-human`). */
+  backendType?: string
+  /** Interactive shell executable; empty resolves the login shell (`$SHELL`), else zsh on macOS, bash elsewhere. */
+  shellPath?: string
+  /** Shell arguments (default: `-i`, an interactive shell that sources `.bashrc`). */
+  shellArgs?: string[]
+  /** Terminal rows. */
+  rows?: number
+  /** Terminal columns. */
+  cols?: number
+  /** Maximum retained logical lines. */
+  scrollbackLines?: number
+  /** Maximum retained UTF-8 bytes. */
+  scrollbackMaxBytes?: number
+  /** Maximum bytes returned by one read. */
+  maxReadBytes?: number
+  /** Bound on waiting for the shell's first output (the open motd). */
+  startupTimeoutMs?: number
+  /** Interval for the startup-output poll. */
+  pollIntervalMs?: number
+  /** Grace before teardown escalates to force termination. */
+  disposeGraceMs?: number
+}
+```
+
+来源：[`packages/terminal/terminal-bash-human/src/config.ts:6`](../packages/terminal/terminal-bash-human/src/config.ts)
+
 <a id="deepseek-aidsh-terminal-pwsh"></a>
 
 ## `@deepseek-ai/dsh-terminal-pwsh`

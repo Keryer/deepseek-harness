@@ -38,6 +38,8 @@ flowchart LR
   cfg --> plugin_dsh_base_terminals
   plugin_dsh_base_terminal_bash["terminal-bash<br/>@deepseek-ai/dsh-terminal-bash"]
   cfg --> plugin_dsh_base_terminal_bash
+  plugin_dsh_base_terminal_bash_human["terminal-bash-human<br/>@deepseek-ai/dsh-terminal-bash-human"]
+  cfg --> plugin_dsh_base_terminal_bash_human
   plugin_dsh_base_terminal_pwsh["terminal-pwsh<br/>@deepseek-ai/dsh-terminal-pwsh"]
   cfg --> plugin_dsh_base_terminal_pwsh
   plugin_dsh_base_llm_retry["llm-retry<br/>@deepseek-ai/dsh-llm-retry"]
@@ -189,6 +191,7 @@ flowchart LR
 | `jobs` | `@deepseek-ai/dsh-jobs-local` |
 | `terminals` | `@deepseek-ai/dsh-terminal` |
 | `terminal-bash` | `@deepseek-ai/dsh-terminal-bash` |
+| `terminal-bash-human` | `@deepseek-ai/dsh-terminal-bash-human` |
 | `terminal-pwsh` | `@deepseek-ai/dsh-terminal-pwsh` |
 | `llm-retry` | `@deepseek-ai/dsh-llm-retry` |
 | `settings` | `@deepseek-ai/dsh-settings-file` |

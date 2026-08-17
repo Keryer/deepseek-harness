@@ -125,6 +125,17 @@ registerBackend(backend: TerminalBackend): () => void
 listBackends(): string[]
 
 /**
+ * Subscribe to publication of new sessions, for consumers whose baseline
+ * snapshot predates a later terminal (the Web output stream re-baselines
+ * existing sessions at open and attaches to sessions opened after it through
+ * this notification; `open` already returns the new session's motd, so a
+ * subscriber needs no baseline replay, only the live-output subscription).
+ * @param listener - receives the exact owner and published snapshot.
+ * @returns disposer that removes exactly this listener.
+ */
+onCreated(listener: (owner: Agent, snapshot: TerminalSessionSnapshot) => void): () => void
+
+/**
  * Create and publish one owner-scoped session after backend setup succeeds.
  * @param owner - exact registered Agent that owns access and cleanup.
  * @param request - backend type plus optional owner-local name and cwd.
